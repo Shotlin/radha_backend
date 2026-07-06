@@ -1,0 +1,9 @@
+{
+  "//": "Runtime-only path map for the COMPILED output. `nest build` (tsc) leaves the `@/*` alias in dist/ unresolved; the production containers run `node -r tsconfig-paths/register` with TS_NODE_PROJECT pointed here so `@/x` resolves to `dist/x`. Do not use for compilation — see tsconfig.json / tsconfig.build.json for that.",
+  "compilerOptions": {
+    "baseUrl": "dist",
+    "paths": {
+      "@/*": ["*"]
+    }
+  }
+}

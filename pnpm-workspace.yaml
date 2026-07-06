@@ -1,0 +1,17 @@
+# Force a single ioredis copy. bullmq pins ioredis@5.10.1 exactly; the
+# direct `ioredis: ^5.4.1` dep otherwise resolves to 5.11.1, producing two
+# copies whose `Redis`/`ConnectionOptions` types are mutually unassignable
+# (tsc failure in src/jobs/bullmq-queue.provider.ts). Pin everything to the
+# version bullmq expects. (pnpm 10+ reads overrides from this file, not the
+# package.json `pnpm.overrides` field.)
+overrides:
+  ioredis: 5.10.1
+
+allowBuilds:
+  '@nestjs/core': set this to true or false
+  bcrypt: set this to true or false
+  es5-ext: set this to true or false
+  esbuild: set this to true or false
+  msgpackr-extract: set this to true or false
+  protobufjs: set this to true or false
+  sharp: set this to true or false

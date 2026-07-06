@@ -1,0 +1,38 @@
+{
+  "errors": {
+    "generic": "Something went wrong. Please try again.",
+    "unauthorized": "You are not authorized to perform this action.",
+    "not_found": "The requested resource was not found.",
+    "rate_limited": "Too many requests. Please slow down.",
+    "validation": "The information you provided is invalid.",
+    "forbidden": "You do not have permission to access this."
+  },
+  "notifications": {
+    "recall_alert": {
+      "title": "Product recall alert",
+      "body": "{name} has been recalled. Tap to view details."
+    },
+    "expiry": {
+      "near": "{name} is expiring soon ({days} days left).",
+      "expired": "{name} has expired."
+    },
+    "task": {
+      "assigned": "You have been assigned a new task: {title}.",
+      "due_soon": "Task {title} is due soon."
+    }
+  },
+  "scan": {
+    "success": "Scan successful.",
+    "failed": "Scan failed. Please try again.",
+    "product_not_found": "Product not found in our database.",
+    "processing": "Processing scan, please wait.",
+    "barcode_invalid": "The barcode is invalid or unreadable."
+  },
+  "common": {
+    "app_name": "RADHA",
+    "greeting": "Hello, {name}!",
+    "welcome": "Welcome to RADHA.",
+    "loading": "Loading...",
+    "try_again": "Try again"
+  }
+}

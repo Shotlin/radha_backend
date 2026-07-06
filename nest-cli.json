@@ -1,0 +1,13 @@
+{
+  "collection": "@nestjs/schematics",
+  "sourceRoot": "src",
+  "entryFile": "main.api",
+  "compilerOptions": {
+    "deleteOutDir": true,
+    "tsConfigPath": "tsconfig.build.json",
+    "builder": "tsc",
+    "assets": [
+      { "include": "common/i18n/locales/**/*.json", "outDir": "dist", "watchAssets": true }
+    ]
+  }
+}
