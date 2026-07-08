@@ -221,6 +221,12 @@ export class ConfigService implements IConfigService {
 
   // ───── Demo / test credentials ────────────────────────────────────
 
+  /** Defense-in-depth valve around AuthService's two hardcoded demo
+   * numbers. Defaults true (see env.schema.ts for why). */
+  get demoAccountsEnabled(): boolean {
+    return this.read('DEMO_ACCOUNTS_ENABLED');
+  }
+
   /** Normalised 10-digit mobile that always receives `demoOtp`. */
   get demoMobile(): string | undefined {
     return this.readOptional('DEMO_MOBILE');

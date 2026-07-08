@@ -77,11 +77,13 @@ export class AuthService {
     const mobile = normaliseMobile(dto.mobile);
 
     // Demo accounts: skip SMS and rate limiting.
-    const demoOtp = AuthService.demoOtpFor(mobile);
     // Intentionally NOT gated on isProduction: these are two fixed,
     // hardcoded demo numbers the team logs in with on the live app too.
     // demoOtpFor() only ever returns non-null for those two exact numbers,
     // so this can never become a bypass for a real mobile number.
+    // `demoAccountsEnabled` (default true) is a defense-in-depth valve on
+    // top of that, not a behavior change -- see config.service.ts.
+    const demoOtp = this.config.demoAccountsEnabled ? AuthService.demoOtpFor(mobile) : null;
     const isDemoUser = demoOtp !== null;
 
     if (!isDemoUser) this.rateLimiter.checkOtpRequest(mobile, ipAddress);

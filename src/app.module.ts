@@ -20,6 +20,7 @@ import { AdminImpersonationModule } from './modules/admin-impersonation/admin-im
 import { AffiliateModule } from './modules/affiliate/affiliate.module';
 import { AiModule } from './modules/ai/ai.module';
 import { AllergenModule } from './modules/allergen/allergen.module';
+import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { BarcodeLearningModule } from './modules/barcode-learning/barcode-learning.module';
 import { BusinessActivationModule } from './modules/business-activation/business-activation.module';
@@ -113,6 +114,7 @@ import { ObservabilityModule } from './observability/observability.module';
     AdminImpersonationModule,
     AffiliateModule,
     AllergenModule,
+    AnalyticsModule,
     BarcodeLearningModule,
     BusinessActivationModule,
     CatalogImportModule,

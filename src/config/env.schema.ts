@@ -197,6 +197,12 @@ export const EnvSchema = z.object({
   RAZORPAY_WEBHOOK_SECRET: z.string().default(''),
 
   // ───── Demo / testing credentials ─────────────────────────────────
+  // Defense-in-depth valve around the two fixed, hardcoded demo numbers
+  // in AuthService (9999999999 / 8000000000). Defaults true to preserve
+  // current behavior exactly -- demoOtpFor() only ever matches those two
+  // exact numbers so this was never a real bypass risk, but the flag lets
+  // it be switched off without a code change if that assumption changes.
+  DEMO_ACCOUNTS_ENABLED: envBool(true),
   // When both are set, requests for DEMO_MOBILE always receive DEMO_OTP
   // and SMS delivery is skipped. Safe to set in any non-production env.
   DEMO_MOBILE: z
