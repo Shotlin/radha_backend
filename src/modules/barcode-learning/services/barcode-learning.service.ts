@@ -336,7 +336,7 @@ export class BarcodeLearningService {
     void this.healthScoring.scoreProduct(catalogResult.productId).catch((err) => {
       this.logger.warn('barcode_learning.approve.score_failed', {
         productId: catalogResult.productId,
-        error: (err as Error).message,
+        error: { name: (err as Error).name, message: (err as Error).message },
       });
     });
     void this.notifications
@@ -354,7 +354,7 @@ export class BarcodeLearningService {
       .catch((err) => {
         this.logger.warn('barcode_learning.approve.notify_failed', {
           submissionId,
-          error: (err as Error).message,
+          error: { name: (err as Error).name, message: (err as Error).message },
         });
       });
 
@@ -425,7 +425,7 @@ export class BarcodeLearningService {
       .catch((err) => {
         this.logger.warn('barcode_learning.reject.notify_failed', {
           submissionId,
-          error: (err as Error).message,
+          error: { name: (err as Error).name, message: (err as Error).message },
         });
       });
 
