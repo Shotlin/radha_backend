@@ -38,6 +38,7 @@
     "db:push": "drizzle-kit push:pg",
     "db:migrate": "tsx src/db/migrate.ts",
     "db:import:catalog": "ts-node -r tsconfig-paths/register src/db/import-catalog.ts",
+    "db:create-first-admin": "ts-node -r tsconfig-paths/register src/db/create-first-admin.ts",
     "db:import:curated": "ts-node -r tsconfig-paths/register src/db/import-curated-catalog.ts",
     "db:host:images": "ts-node -r tsconfig-paths/register src/db/host-catalog-images.ts",
     "db:reset": "tsx src/db/reset.ts",
