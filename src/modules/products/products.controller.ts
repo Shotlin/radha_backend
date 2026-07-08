@@ -27,6 +27,7 @@ import { RolesGuard } from '@/modules/auth/guards/roles.guard';
 import { TenantScopeGuard } from '@/modules/auth/guards/tenant-scope.guard';
 import type { AuthenticatedUser } from '@/modules/auth/types/permission.types';
 import { HealthScoringService } from '@/modules/health-scoring/services/health-scoring.service';
+import { Throttle } from '@nestjs/throttler';
 
 import {
   CreateProductDto,
@@ -67,6 +68,7 @@ export class ProductsController {
   @Version('1')
   @Roles('owner', 'manager', 'staff', 'auditor', 'consumer', 'admin')
   @RequirePermissions('products:read')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   async lookupByEan(
     @Param('ean') ean: string,
     @CurrentTenant() tenantId: string | null,

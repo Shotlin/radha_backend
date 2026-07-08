@@ -1,4 +1,5 @@
 import { Body, Controller, HttpCode, Param, Post, UseGuards, Version } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 
 import { ZodValidationPipe } from '@/common/pipes/zod-validation.pipe';
 import { CurrentTenant, CurrentUser, Roles } from '@/modules/auth/decorators/auth.decorators';
@@ -54,6 +55,11 @@ export class ConsumerSubmissionController {
   @Post('learn')
   @Version('1')
   @HttpCode(201)
+  // Burst throttle on top of the existing 10/day DB-counted quota
+  // (BarcodeLearningService.MAX_SUBMISSIONS_PER_DAY) -- that limit is
+  // untouched; this only stops rapid-fire abuse within a single day's
+  // allowance.
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   submit(
     @CurrentUser('id') userId: string,
     @Body(new ZodValidationPipe(SubmitBarcodeSchema)) dto: SubmitBarcodeDto,

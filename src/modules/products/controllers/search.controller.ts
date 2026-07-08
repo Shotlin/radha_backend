@@ -1,4 +1,5 @@
 import { Controller, Get, Param, Query, UseGuards, Version } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 
 import { ParseUuidPipe } from '@/common/pipes/parse-uuid.pipe';
 import { ZodValidationPipe } from '@/common/pipes/zod-validation.pipe';
@@ -54,6 +55,7 @@ export class SearchController {
   @Get('search')
   @Version('1')
   @RequirePermissions('products:read')
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
   async fullSearch(
     @Query(new ZodValidationPipe(SearchProductsSchema)) query: SearchProductsDto,
     @CurrentTenant() tenantId: string | null,
@@ -66,6 +68,7 @@ export class SearchController {
   @Get('autocomplete')
   @Version('1')
   @RequirePermissions('products:read')
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
   async autocomplete(
     @Query(new ZodValidationPipe(AutocompleteSchema)) query: AutocompleteDto,
     @CurrentTenant() tenantId: string | null,

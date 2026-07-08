@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 
 import { CommonModule } from './common/common.module';
 import { I18nModule } from './common/i18n/i18n.module';
@@ -34,6 +36,7 @@ import { HealthModule } from './modules/health/health.module';
 import { HealthScoringModule } from './modules/health-scoring/health-scoring.module';
 import { ImageFallbackModule } from './modules/image-fallback/image-fallback.module';
 import { IngredientExplainerModule } from './modules/ingredient-explainer/ingredient-explainer.module';
+import { InventoryModule } from './modules/inventory/inventory.module';
 import { MediaModule } from './modules/media/media.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { OnboardingModule } from './modules/onboarding/onboarding.module';
@@ -78,6 +81,9 @@ import { ObservabilityModule } from './observability/observability.module';
     ObservabilityModule,
     CommonModule,
     DbModule,
+    // Global default: 30 req/min/IP. Individual routes tighten this
+    // further via @Throttle() -- see scan/lookup/search/learn controllers.
+    ThrottlerModule.forRoot([{ ttl: 60000, limit: 30 }]),
     SmsModule,
     EmailModule,
     OffModule,
@@ -123,6 +129,7 @@ import { ObservabilityModule } from './observability/observability.module';
     I18nModule,
     ImageFallbackModule,
     IngredientExplainerModule,
+    InventoryModule,
     PublicProductModule,
     RateLimitingModule,
     RecallModule,
@@ -139,5 +146,6 @@ import { ObservabilityModule } from './observability/observability.module';
     WebhooksModule,
     WeeklyDigestModule,
   ],
+  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule {}

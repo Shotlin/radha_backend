@@ -11,6 +11,7 @@ import {
   Version,
   forwardRef,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 
 import { BusinessException } from '@/common/errors/business.exception';
 import { ErrorCode } from '@/common/errors/error-codes';
@@ -64,6 +65,7 @@ export class ScanController {
 
   @Get(':ean/scan')
   @Version('1')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   async scan(
     @Param('ean') ean: string,
     @Query('mode') modeQuery: string | undefined,

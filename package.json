@@ -59,6 +59,7 @@
     "@nestjs/platform-express": "^10.3.0",
     "@nestjs/schedule": "^4.0.0",
     "@nestjs/terminus": "^10.2.0",
+    "@nestjs/throttler": "^5.2.0",
     "@sentry/node": "^7.99.0",
     "@types/bcryptjs": "^3.0.0",
     "bcrypt": "^5.1.1",
