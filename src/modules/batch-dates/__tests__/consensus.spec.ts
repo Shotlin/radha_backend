@@ -65,8 +65,11 @@ describe('computeConsensus', () => {
     it('confidence is floored at 0.5 even with a small minority overall', () => {
       // 3 users agree, but there are 10 total distinct users across all
       // clusters -- the raw ratio (3/10=0.3) would undersell a genuinely
-      // trusted cluster, so the floor kicks in.
-      const others = Array.from({ length: 7 }, (_, i) => obs(`stray${i}`, 30 + i));
+      // trusted cluster, so the floor kicks in. Each stray is its own
+      // lone-user cluster spaced 10 days apart (well outside the +-1 day
+      // pooling tolerance) so they never chain-cluster with each other
+      // or with the winning day-0 cluster.
+      const others = Array.from({ length: 7 }, (_, i) => obs(`stray${i}`, 30 + i * 10));
       const result = computeConsensus([obs('u1', 0), obs('u2', 0), obs('u3', 0), ...others]);
       expect(result.status).toBe('trusted');
       expect(result.confidence).toBe(0.5);
