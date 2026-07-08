@@ -1,0 +1,114 @@
+name: radha
+
+x-server-common: &server-common
+  image: radha-server:latest
+  env_file:
+    - server/.env.production
+  environment:
+    NODE_ENV: development
+  restart: always
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  deploy:
+    resources:
+      limits:
+        memory: 512M
+
+services:
+  minio:
+    image: minio/minio:latest
+    container_name: radha-minio
+    restart: always
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - radha-minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: radha-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: radha_app
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: radha
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    volumes:
+      - radha-pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U radha_app -d radha"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    expose:
+      - "5432"
+
+  redis:
+    image: redis:7-alpine
+    container_name: radha-redis
+    restart: always
+    command:
+      - redis-server
+      - --requirepass
+      - "${REDIS_PASSWORD}"
+      - --save
+      - "60"
+      - "1"
+      - --loglevel
+      - warning
+    volumes:
+      - radha-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    expose:
+      - "6379"
+
+  api:
+    <<: *server-common
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["node", "dist/main.api.js"]
+    ports:
+      - "127.0.0.1:3000:3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/v1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+  worker:
+    <<: *server-common
+    command: ["node", "dist/main.worker.js"]
+    depends_on:
+      api:
+        condition: service_started
+
+  scheduler:
+    <<: *server-common
+    command: ["node", "dist/main.scheduler.js"]
+    depends_on:
+      api:
+        condition: service_started
+
+volumes:
+  radha-pg-data:
+  radha-redis-data:
+  radha-minio-data:
