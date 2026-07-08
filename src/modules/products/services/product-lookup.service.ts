@@ -1,6 +1,8 @@
 import { Injectable, Optional } from '@nestjs/common';
+import { and, eq, isNull, lt, or } from 'drizzle-orm';
 
 import { ValidationException } from '@/common/errors/business.exception';
+import type { Transaction } from '@/db/connection';
 import { DbService } from '@/db/db.service';
 import { LoggerService } from '@/logging/logger.service';
 import { OffMapperService } from '@/integrations/open-food-facts/off-mapper.service';
@@ -10,7 +12,7 @@ import type {
   ProductProviderName,
 } from '@/integrations/products/product-provider.types';
 
-import type { ProductRow, ProductNutritionRow } from '@/db/schema/products';
+import type { ProductRow, ProductNutritionRow, NewProduct } from '@/db/schema/products';
 import { products as productsTable, productNutrition } from '@/db/schema/products';
 
 import { ProductNutritionRepository } from '../repositories/product-nutrition.repository';
@@ -123,7 +125,7 @@ export class ProductLookupService {
     if (options.fallbackToExternal !== false && this.off && this.mapper) {
       const off = await this.off.lookupByEan(ean);
       if (off) {
-        const upserted = await this.persistFromOff(ean, off);
+        const upserted = await this.persistFromOff(ean, off, options.forceRefresh ?? false);
         const enriched = await this.enrich(upserted, options);
         return {
           found: true,
@@ -145,6 +147,7 @@ export class ProductLookupService {
           ean,
           result.provider.providerName,
           result.hit,
+          options.forceRefresh ?? false,
         );
         const enriched = await this.enrich(upserted, options);
         return {
@@ -229,9 +232,48 @@ export class ProductLookupService {
     };
   }
 
+  /** Global rows unrefreshed for longer than this are eligible for a
+   * background refresh on the next lookup that happens to hit them, even
+   * without an explicit forceRefresh -- keeps the catalog from drifting
+   * forever on EANs nobody ever force-refreshes. */
+  private static readonly REFRESH_STALE_AFTER_MS = 30 * 24 * 60 * 60 * 1000;
+
+  /**
+   * Sticky-data fix. `persistFromOff`/`persistFromProvider`'s insert uses
+   * a plain `onConflictDoNothing()` (see the comment there for why it
+   * can't take an explicit target) -- so when the row already exists, the
+   * insert silently no-ops and the fresh provider data would otherwise be
+   * discarded. This does the actual refresh as a SEPARATE, explicit
+   * conditional UPDATE (deliberately not `onConflictDoUpdate`, which
+   * would need the same partial-index target-matching the DO NOTHING path
+   * had to avoid -- an explicit UPDATE with a plain WHERE sidesteps that
+   * entirely). Only fires when the existing row is unrefreshed, older
+   * than 30 days, or the caller explicitly forced it -- so a normal
+   * lookup racing an external re-fetch doesn't churn data needlessly.
+   */
+  private async refreshStaleGlobalRow(
+    tx: Transaction,
+    ean: string,
+    patch: Partial<NewProduct>,
+    forceRefresh: boolean,
+  ): Promise<void> {
+    const cutoff = new Date(Date.now() - ProductLookupService.REFRESH_STALE_AFTER_MS);
+    const staleness = forceRefresh
+      ? undefined
+      : or(isNull(productsTable.dataRefreshedAt), lt(productsTable.dataRefreshedAt, cutoff));
+    const condition = staleness
+      ? and(eq(productsTable.ean, ean), isNull(productsTable.tenantId), staleness)
+      : and(eq(productsTable.ean, ean), isNull(productsTable.tenantId));
+    await tx
+      .update(productsTable)
+      .set({ ...patch, dataRefreshedAt: new Date() })
+      .where(condition);
+  }
+
   private async persistFromOff(
     ean: string,
     off: NonNullable<Awaited<ReturnType<OpenFoodFactsService['lookupByEan']>>>,
+    forceRefresh = false,
   ): Promise<ProductRow> {
     if (!this.mapper) {
       throw new Error('OffMapperService not available');
@@ -240,23 +282,25 @@ export class ProductLookupService {
     const nutritionData = this.mapper.mapToNutrition(off);
 
     return this.db.transaction(async (tx) => {
+      const insertValues = {
+        tenantId: null, // global catalog
+        ean,
+        name: productData.name,
+        brand: productData.brand,
+        manufacturer: productData.manufacturer,
+        subCategory: productData.subCategory,
+        imageUrl: productData.imageUrl,
+        description: productData.description,
+        packageSize: productData.packageSize,
+        packageUnit: productData.packageUnit,
+        status: 'active' as const,
+        dataSource: 'open_food_facts',
+        externalId: productData.externalId,
+        dataRefreshedAt: new Date(),
+      };
       const [row] = await tx
         .insert(productsTable)
-        .values({
-          tenantId: null, // global catalog
-          ean,
-          name: productData.name,
-          brand: productData.brand,
-          manufacturer: productData.manufacturer,
-          subCategory: productData.subCategory,
-          imageUrl: productData.imageUrl,
-          description: productData.description,
-          packageSize: productData.packageSize,
-          packageUnit: productData.packageUnit,
-          status: 'active',
-          dataSource: 'open_food_facts',
-          externalId: productData.externalId,
-        })
+        .values(insertValues)
         // No explicit target: this drizzle-orm version emits the `where`
         // option *after* `DO NOTHING` (`(ean) do nothing where ...`), which
         // is invalid Postgres syntax for a partial-index conflict target
@@ -267,6 +311,14 @@ export class ProductLookupService {
         // index inference at all.
         .onConflictDoNothing()
         .returning();
+
+      if (!row) {
+        // Conflict: a global row for this EAN already exists. Refresh it
+        // (subject to the staleness gate) instead of leaving stale/wrong
+        // data stuck forever -- the actual sticky-data fix.
+        const { tenantId: _tenantId, ean: _ean, ...patch } = insertValues;
+        await this.refreshStaleGlobalRow(tx, ean, patch, forceRefresh);
+      }
 
       const product =
         row ??
@@ -318,29 +370,37 @@ export class ProductLookupService {
     ean: string,
     providerName: ProductProviderName,
     hit: ProductLookupHit,
+    forceRefresh = false,
   ): Promise<ProductRow> {
     const { mapped, nutrition: nutritionData } = hit;
 
     return this.db.transaction(async (tx) => {
+      const insertValues = {
+        tenantId: null, // global catalog
+        ean,
+        name: mapped.name,
+        brand: mapped.brand,
+        manufacturer: mapped.manufacturer,
+        subCategory: mapped.subCategory,
+        imageUrl: mapped.imageUrl,
+        description: mapped.description,
+        packageSize: mapped.packageSize,
+        packageUnit: mapped.packageUnit,
+        status: 'active' as const,
+        dataSource: providerName,
+        externalId: mapped.externalId,
+        dataRefreshedAt: new Date(),
+      };
       const [row] = await tx
         .insert(productsTable)
-        .values({
-          tenantId: null, // global catalog
-          ean,
-          name: mapped.name,
-          brand: mapped.brand,
-          manufacturer: mapped.manufacturer,
-          subCategory: mapped.subCategory,
-          imageUrl: mapped.imageUrl,
-          description: mapped.description,
-          packageSize: mapped.packageSize,
-          packageUnit: mapped.packageUnit,
-          status: 'active',
-          dataSource: providerName,
-          externalId: mapped.externalId,
-        })
+        .values(insertValues)
         .onConflictDoNothing()
         .returning();
+
+      if (!row) {
+        const { tenantId: _tenantId, ean: _ean, ...patch } = insertValues;
+        await this.refreshStaleGlobalRow(tx, ean, patch, forceRefresh);
+      }
 
       const product =
         row ??

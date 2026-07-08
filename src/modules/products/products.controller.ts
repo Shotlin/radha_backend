@@ -25,6 +25,8 @@ import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '@/modules/auth/guards/permissions.guard';
 import { RolesGuard } from '@/modules/auth/guards/roles.guard';
 import { TenantScopeGuard } from '@/modules/auth/guards/tenant-scope.guard';
+import type { AuthenticatedUser } from '@/modules/auth/types/permission.types';
+import { HealthScoringService } from '@/modules/health-scoring/services/health-scoring.service';
 
 import {
   CreateProductDto,
@@ -45,14 +47,45 @@ export class ProductsController {
   constructor(
     private readonly products: ProductsService,
     private readonly lookup: ProductLookupService,
+    private readonly healthScoring: HealthScoringService,
   ) {}
 
+  /**
+   * Health is embedded here (controller level), not inside
+   * ProductLookupService, deliberately: HealthScoringService already
+   * injects ProductLookupService directly (it needs the lookup to resolve
+   * a product by EAN), so wiring the dependency the other way around
+   * would create a circular PROVIDER dependency, not just a circular
+   * module import. The controller sits outside that graph, so it can
+   * safely depend on both.
+   *
+   * `forceRefresh` is admin/owner-only -- see the sticky-data fix in
+   * ProductLookupService.persistFromOff/persistFromProvider for what it
+   * actually does server-side.
+   */
   @Get('lookup/:ean')
   @Version('1')
   @Roles('owner', 'manager', 'staff', 'auditor', 'consumer', 'admin')
   @RequirePermissions('products:read')
-  async lookupByEan(@Param('ean') ean: string, @CurrentTenant() tenantId: string | null) {
-    return this.lookup.lookupByEan(ean, tenantId, { includeNutrition: true });
+  async lookupByEan(
+    @Param('ean') ean: string,
+    @CurrentTenant() tenantId: string | null,
+    @Query('forceRefresh') forceRefreshParam: string | undefined,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const canForceRefresh =
+      forceRefreshParam === 'true' && (user.role === 'admin' || user.role === 'owner');
+    const result = await this.lookup.lookupByEan(ean, tenantId, {
+      includeNutrition: true,
+      forceRefresh: canForceRefresh,
+    });
+    if (!result.found || !result.product) {
+      return result;
+    }
+    const health = await this.healthScoring
+      .scoreProduct(result.product.id)
+      .catch(() => null);
+    return { ...result, health };
   }
 
   @Post('lookup/batch')

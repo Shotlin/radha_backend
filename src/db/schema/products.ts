@@ -81,6 +81,16 @@ export const products = pgTable(
     // Source tracking — `manual`, `open_food_facts`, `community`, etc.
     dataSource: varchar('data_source', { length: 50 }).notNull().default('manual'),
     externalId: varchar('external_id', { length: 100 }),
+    /**
+     * When an external-provider-sourced global row was last (re)persisted.
+     * Null for rows never touched by the refresh path. Gates the
+     * `onConflictDoUpdate` staleness check in `product-lookup.service.ts`
+     * so a global catalog row only refreshes when actually stale
+     * (>30 days) or a `forceRefresh` lookup explicitly requests it —
+     * without this, the first external-provider hit for an EAN would
+     * persist forever, never picking up upstream corrections.
+     */
+    dataRefreshedAt: timestamp('data_refreshed_at'),
 
     metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}),
 
