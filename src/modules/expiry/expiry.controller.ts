@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   HttpCode,
   Param,
   Post,
@@ -93,8 +94,9 @@ export class ExpiryController {
     @Body(new ZodValidationPipe(CreateExpiryRecordSchema)) dto: CreateExpiryRecordDto,
     @CurrentTenant() tenantId: string,
     @CurrentUser('id') userId: string,
+    @Headers('idempotency-key') idempotencyKey?: string,
   ): Promise<unknown> {
-    return this.expiry.createRecord(tenantId, userId, dto);
+    return this.expiry.createRecord(tenantId, userId, dto, idempotencyKey);
   }
 
   @Get('expiry-records/near-expiry')

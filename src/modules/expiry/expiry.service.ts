@@ -1,15 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { ConflictException, Injectable } from '@nestjs/common';
 
 import { DomainNotFoundException } from '@/common/errors/business.exception';
 import { DbService } from '@/db/db.service';
 import type { ExpiryRecordRow } from '@/db/schema/expiry';
-
-/** `ExpiryRecordRow` plus the product's display name, joined in the
- * service layer (spec §B2.2) so the app's expiry list can render a real
- * product name instead of an 8-char product-id token. */
-export type ExpiryRecordWithProductName = ExpiryRecordRow & { productName: string | null };
 import { LoggerService } from '@/logging/logger.service';
 import { ProductsRepository } from '@/modules/products/products.repository';
+import { IdempotencyService } from '@/modules/sync/services/idempotency.service';
 import { AuditLogService } from '@/observability/audit-log.service';
 
 import { CreateExpiryRecordDto, ListExpiryRecordsQueryDto } from './dto/expiry.dto';
@@ -27,6 +23,13 @@ import type {
   RecalculationResult,
 } from './types/expiry.types';
 
+/** `ExpiryRecordRow` plus the product's display name, joined in the
+ * service layer (spec §B2.2) so the app's expiry list can render a real
+ * product name instead of an 8-char product-id token. */
+export type ExpiryRecordWithProductName = ExpiryRecordRow & { productName: string | null };
+
+const IDEMPOTENCY_PATH_LABEL = 'expiry-records';
+
 @Injectable()
 export class ExpiryService {
   constructor(
@@ -39,15 +42,49 @@ export class ExpiryService {
     private readonly products: ProductsRepository,
     private readonly logger: LoggerService,
     private readonly audit: AuditLogService,
+    private readonly idempotency: IdempotencyService,
   ) {}
 
   /* ─────────────────── Records ─────────────────── */
 
+  /**
+   * §B2.2: a replayed create carrying the same `Idempotency-Key` returns
+   * the original record instead of inserting a duplicate. Applied
+   * explicitly here rather than relying on `SyncModule`'s app-wide
+   * `IdempotencyMiddleware` — that middleware runs BEFORE guards in the
+   * Nest request lifecycle, so on a `@UseGuards(JwtAuthGuard)` route
+   * `req.user` isn't populated yet when it executes and it silently
+   * skips idempotency for lack of a user to scope the record to
+   * (verified live: two identical requests with the same key produced
+   * two different record ids before this fix).
+   */
   async createRecord(
     tenantId: string,
     userId: string,
     dto: CreateExpiryRecordDto,
+    idempotencyKey?: string,
   ): Promise<ExpiryRecordWithProductName> {
+    const requestHash = idempotencyKey
+      ? this.idempotency.hashRequest({
+          method: 'POST',
+          path: IDEMPOTENCY_PATH_LABEL,
+          body: dto,
+        })
+      : null;
+
+    if (idempotencyKey && requestHash) {
+      const cached = await this.idempotency.lookup(idempotencyKey);
+      if (cached) {
+        if (cached.requestHash !== requestHash) {
+          throw new ConflictException({
+            code: 'IDEMPOTENCY_KEY_REUSE',
+            message: 'Idempotency-Key reused with a different request payload',
+          });
+        }
+        return cached.responseBody as ExpiryRecordWithProductName;
+      }
+    }
+
     const product = await this.products.findById(dto.productId);
     if (!product) throw new DomainNotFoundException('Product', dto.productId);
 
@@ -55,7 +92,7 @@ export class ExpiryService {
     const status = this.calculator.calculateStatus(dto.expiryDate, threshold);
     const daysRemaining = this.calculator.daysUntilExpiry(dto.expiryDate);
 
-    return this.db.transaction(async (tx) => {
+    const result = await this.db.transaction(async (tx) => {
       const created = await this.recordsRepo.create(
         {
           tenantId,
@@ -94,6 +131,17 @@ export class ExpiryService {
 
       return { ...created, productName: product.name };
     });
+
+    if (idempotencyKey && requestHash) {
+      await this.idempotency.persist({
+        key: idempotencyKey,
+        userId,
+        requestHash,
+        response: { status: 201, body: result },
+      });
+    }
+
+    return result;
   }
 
   async findById(tenantId: string, id: string): Promise<ExpiryRecordWithProductName> {
