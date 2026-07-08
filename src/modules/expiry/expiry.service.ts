@@ -71,6 +71,15 @@ export class ExpiryService {
           body: dto,
         })
       : null;
+    if (idempotencyKey) {
+      // TEMP DEBUG -- remove after diagnosing the hash-mismatch bug.
+      this.logger.info('DEBUG_idempotency_hash', {
+        idempotencyKey,
+        requestHash,
+        dtoJson: JSON.stringify(dto),
+        dtoKeys: Object.keys(dto as object),
+      });
+    }
 
     if (idempotencyKey && requestHash) {
       const cached = await this.idempotency.lookup(idempotencyKey);
