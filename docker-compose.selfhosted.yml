@@ -3,7 +3,7 @@ name: radha
 x-server-common: &server-common
   image: radha-server:latest
   env_file:
-    - server/.env.production
+    - .env.production
   environment:
     NODE_ENV: development
   restart: always
