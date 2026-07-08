@@ -129,6 +129,11 @@ export const AUDITOR_PERMISSIONS: ReadonlySet<Permission> = new Set<Permission>(
 
 /** BE-08 v2 ADDENDUM (Req 1, 26, 27, 30–35): Consumer permission set. */
 export const CONSUMER_PERMISSIONS: ReadonlySet<Permission> = new Set<Permission>([
+  // Read-only catalog/product access — every consumer-facing controller route
+  // (scan lookup, catalog browse, catalog categories) already lists 'consumer'
+  // in its @Roles(), but the permission was never granted here, so every one
+  // of those routes 403'd for every consumer account.
+  'products:read',
   'consumer:scan',
   'consumer:save_product',
   'consumer:expiry_calendar:read',

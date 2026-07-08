@@ -257,7 +257,15 @@ export class ProductLookupService {
           dataSource: 'open_food_facts',
           externalId: productData.externalId,
         })
-        .onConflictDoNothing({ target: productsTable.ean })
+        // No explicit target: this drizzle-orm version emits the `where`
+        // option *after* `DO NOTHING` (`(ean) do nothing where ...`), which
+        // is invalid Postgres syntax for a partial-index conflict target
+        // (the predicate must precede `DO NOTHING`). Omitting the target
+        // entirely yields a plain `ON CONFLICT DO NOTHING`, which matches
+        // *any* unique violation — including the partial unique index
+        // `products_global_ean_unique` (migration 0031) — without needing
+        // index inference at all.
+        .onConflictDoNothing()
         .returning();
 
       const product =
@@ -300,8 +308,11 @@ export class ProductLookupService {
    * already-mapped data (those providers map internally before
    * returning a `ProductLookupHit`, unlike OFF's raw-then-mapped
    * split) and persists it identically — same global-catalog
-   * (`tenant_id = NULL`) + idempotent-by-EAN insert pattern.
-   * `persistFromOff` itself is untouched.
+   * (`tenant_id = NULL`) + idempotent-by-EAN insert pattern,
+   * including the no-explicit-target `onConflictDoNothing()` on the
+   * products insert (see the comment in `persistFromOff` — same
+   * drizzle-orm partial-index quirk applies here). `persistFromOff`
+   * itself is untouched.
    */
   private async persistFromProvider(
     ean: string,
@@ -328,7 +339,7 @@ export class ProductLookupService {
           dataSource: providerName,
           externalId: mapped.externalId,
         })
-        .onConflictDoNothing({ target: productsTable.ean })
+        .onConflictDoNothing()
         .returning();
 
       const product =
