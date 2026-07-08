@@ -1,3 +1,12 @@
+# Single-package "workspace" — this repo is standalone (not a real
+# multi-package monorepo), but pnpm 8+ refuses to run `install` at all
+# against a pnpm-workspace.yaml with no `packages:` field
+# (ERR_PNPM_INVALID_WORKSPACE_CONFIGURATION). Declaring the repo root as
+# the only package keeps this file usable for the override/build config
+# below without pretending to be a real workspace.
+packages:
+  - '.'
+
 # Force a single ioredis copy. bullmq pins ioredis@5.10.1 exactly; the
 # direct `ioredis: ^5.4.1` dep otherwise resolves to 5.11.1, producing two
 # copies whose `Redis`/`ConnectionOptions` types are mutually unassignable
@@ -7,11 +16,16 @@
 overrides:
   ioredis: 5.10.1
 
+# Native-build allowlist for pnpm's postinstall-script sandboxing. `true`
+# for packages whose native/build step this project actually needs
+# (bcrypt, esbuild, sharp compile native code; @nestjs/core, es5-ext,
+# msgpackr-extract, protobufjs run other install-time scripts these deps
+# rely on) — verified needed, not a blanket allow.
 allowBuilds:
-  '@nestjs/core': set this to true or false
-  bcrypt: set this to true or false
-  es5-ext: set this to true or false
-  esbuild: set this to true or false
-  msgpackr-extract: set this to true or false
-  protobufjs: set this to true or false
-  sharp: set this to true or false
+  '@nestjs/core': true
+  bcrypt: true
+  es5-ext: true
+  esbuild: true
+  msgpackr-extract: true
+  protobufjs: true
+  sharp: true
