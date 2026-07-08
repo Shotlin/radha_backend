@@ -3,6 +3,11 @@ import { Injectable } from '@nestjs/common';
 import { DomainNotFoundException } from '@/common/errors/business.exception';
 import { DbService } from '@/db/db.service';
 import type { ExpiryRecordRow } from '@/db/schema/expiry';
+
+/** `ExpiryRecordRow` plus the product's display name, joined in the
+ * service layer (spec §B2.2) so the app's expiry list can render a real
+ * product name instead of an 8-char product-id token. */
+export type ExpiryRecordWithProductName = ExpiryRecordRow & { productName: string | null };
 import { LoggerService } from '@/logging/logger.service';
 import { ProductsRepository } from '@/modules/products/products.repository';
 import { AuditLogService } from '@/observability/audit-log.service';
@@ -42,7 +47,7 @@ export class ExpiryService {
     tenantId: string,
     userId: string,
     dto: CreateExpiryRecordDto,
-  ): Promise<ExpiryRecordRow> {
+  ): Promise<ExpiryRecordWithProductName> {
     const product = await this.products.findById(dto.productId);
     if (!product) throw new DomainNotFoundException('Product', dto.productId);
 
@@ -87,17 +92,21 @@ export class ExpiryService {
         metadata: { productId: dto.productId, status, source: dto.source },
       });
 
-      return created;
+      return { ...created, productName: product.name };
     });
   }
 
-  async findById(tenantId: string, id: string): Promise<ExpiryRecordRow> {
+  async findById(tenantId: string, id: string): Promise<ExpiryRecordWithProductName> {
     const row = await this.recordsRepo.findByIdInTenant(id, tenantId);
     if (!row) throw new DomainNotFoundException('ExpiryRecord', id);
-    return row;
+    const [withNames] = await this._withProductNames([row]);
+    return withNames;
   }
 
-  async list(tenantId: string, query: ListExpiryRecordsQueryDto): Promise<ExpiryRecordRow[]> {
+  async list(
+    tenantId: string,
+    query: ListExpiryRecordsQueryDto,
+  ): Promise<ExpiryRecordWithProductName[]> {
     const filters: ExpiryFilters = {
       status: query.status as ExpiryStatus[] | undefined,
       productId: query.productId,
@@ -108,10 +117,26 @@ export class ExpiryService {
       cutoff.setDate(cutoff.getDate() + query.daysAhead);
       filters.toDate = cutoff;
     }
-    return this.recordsRepo.listForStore(tenantId, query.storeId, {
+    const rows = await this.recordsRepo.listForStore(tenantId, query.storeId, {
       ...filters,
       limit: query.limit,
     });
+    return this._withProductNames(rows);
+  }
+
+  /** Batch-attaches `productName` to each row via one lookup per unique
+   * `productId` (bounded by the query's own `limit`, so this never scans
+   * more products than records returned). No repository/schema join is
+   * needed since `ProductsRepository.findById` already exists. */
+  private async _withProductNames(
+    rows: ExpiryRecordRow[],
+  ): Promise<ExpiryRecordWithProductName[]> {
+    const uniqueIds = [...new Set(rows.map((r) => r.productId))];
+    const entries = await Promise.all(
+      uniqueIds.map(async (id) => [id, (await this.products.findById(id))?.name ?? null] as const),
+    );
+    const nameById = new Map(entries);
+    return rows.map((r) => ({ ...r, productName: nameById.get(r.productId) ?? null }));
   }
 
   async findNearExpiry(

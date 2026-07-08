@@ -45,3 +45,4 @@ export * from './consumer-weekly-digests';
 export * from './shopping-lists';
 export * from './verified-badges';
 export * from './barcode-learning';
+export * from './batch-dates';

@@ -25,6 +25,7 @@ import { AllergenModule } from './modules/allergen/allergen.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { BarcodeLearningModule } from './modules/barcode-learning/barcode-learning.module';
+import { BatchDatesModule } from './modules/batch-dates/batch-dates.module';
 import { BusinessActivationModule } from './modules/business-activation/business-activation.module';
 import { CatalogImportModule } from './modules/catalog-import/catalog-import.module';
 import { EanListsModule } from './modules/ean-lists/ean-lists.module';
@@ -122,6 +123,7 @@ import { ObservabilityModule } from './observability/observability.module';
     AllergenModule,
     AnalyticsModule,
     BarcodeLearningModule,
+    BatchDatesModule,
     BusinessActivationModule,
     CatalogImportModule,
     ExpiryCalendarModule,
