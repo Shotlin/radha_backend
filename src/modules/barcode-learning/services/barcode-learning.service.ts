@@ -12,6 +12,8 @@ import type {
 } from '@/db/schema/barcode-learning';
 import { CloudFrontService } from '@/integrations/aws/cloudfront/cloudfront.service';
 import { LoggerService } from '@/logging/logger.service';
+import { NotificationsService } from '@/modules/notifications/notifications.service';
+import { HealthScoringService } from '@/modules/health-scoring/services/health-scoring.service';
 import { AuditLogService } from '@/observability/audit-log.service';
 
 import type { ApproveSubmissionDto, RejectSubmissionDto } from '../dto/moderate.dto';
@@ -142,6 +144,8 @@ export class BarcodeLearningService {
     private readonly logger: LoggerService,
     private readonly audit: AuditLogService,
     private readonly cdn: CloudFrontService,
+    private readonly notifications: NotificationsService,
+    private readonly healthScoring: HealthScoringService,
   ) {}
 
   /* ─────────────────── Consumer: submit ─────────────────── */
@@ -327,6 +331,33 @@ export class BarcodeLearningService {
       },
     });
 
+    // Best-effort: a scoring or notification failure must never fail the
+    // approval transaction itself, which has already committed above.
+    void this.healthScoring.scoreProduct(catalogResult.productId).catch((err) => {
+      this.logger.warn('barcode_learning.approve.score_failed', {
+        productId: catalogResult.productId,
+        error: (err as Error).message,
+      });
+    });
+    void this.notifications
+      .send({
+        tenantId: '',
+        userId: existing.submitterUserId,
+        channels: ['push', 'in-app'],
+        category: 'system',
+        subject: 'Your product submission was approved',
+        body: `${merged.name} is now live in the RADHA catalog. Thanks for contributing!`,
+        data: { submissionId, ean: existing.ean, productId: catalogResult.productId },
+        relatedResourceType: 'product',
+        relatedResourceId: catalogResult.productId,
+      })
+      .catch((err) => {
+        this.logger.warn('barcode_learning.approve.notify_failed', {
+          submissionId,
+          error: (err as Error).message,
+        });
+      });
+
     return {
       submission: this.toDto(updated),
       productId: catalogResult.productId,
@@ -378,6 +409,25 @@ export class BarcodeLearningService {
       success: true,
       metadata: { outcome: 'rejected', ean: existing.ean },
     });
+
+    void this.notifications
+      .send({
+        tenantId: '',
+        userId: existing.submitterUserId,
+        channels: ['in-app'],
+        category: 'system',
+        subject: 'Your product submission was not approved',
+        body: `Your submission for ${existing.ean} wasn't approved: ${dto.reason}`,
+        data: { submissionId, ean: existing.ean, reason: dto.reason },
+        relatedResourceType: 'barcode_learning_submission',
+        relatedResourceId: submissionId,
+      })
+      .catch((err) => {
+        this.logger.warn('barcode_learning.reject.notify_failed', {
+          submissionId,
+          error: (err as Error).message,
+        });
+      });
 
     return this.toDto(updated);
   }

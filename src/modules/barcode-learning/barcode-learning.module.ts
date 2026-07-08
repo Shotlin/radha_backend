@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
 
+import { HealthScoringModule } from '@/modules/health-scoring/health-scoring.module';
 import { AuthModule } from '@/modules/auth/auth.module';
 import { MediaModule } from '@/modules/media/media.module';
+import { NotificationsModule } from '@/modules/notifications/notifications.module';
 import { ProductsModule } from '@/modules/products/products.module';
 import { ObservabilityModule } from '@/observability/observability.module';
 
@@ -36,7 +38,14 @@ import { FlagTrackerService } from './services/flag-tracker.service';
  * avoid a DB dependency.
  */
 @Module({
-  imports: [AuthModule, ObservabilityModule, ProductsModule, MediaModule],
+  imports: [
+    AuthModule,
+    ObservabilityModule,
+    ProductsModule,
+    MediaModule,
+    HealthScoringModule,
+    NotificationsModule,
+  ],
   controllers: [ConsumerSubmissionController, AdminSubmissionController],
   providers: [
     SubmissionRepository,
