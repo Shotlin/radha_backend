@@ -179,6 +179,57 @@ export class AiOrchestratorService implements IAiOrchestratorService {
     return result;
   }
 
+  /**
+   * Parse a product-label PHOTO into a structured analysis — the vision-
+   * native counterpart to `analyzeLabelText`. Reuses the SAME media/quota/
+   * circuit-breaker/audit conventions as `analyzeProductLabel`, under its
+   * own `'label-photo-analysis'` quota bucket (separate from the shared
+   * `'label-analysis'` bucket `analyze`/`analyze-text` use, so a bulk
+   * product-onboarding session can't exhaust the whole month's quota for
+   * unrelated `analyze-text` traffic).
+   */
+  async analyzeLabelPhoto(mediaId: string, options: LlmOptions = {}): Promise<LabelAnalysisResult> {
+    const tenantId = this.tenantId();
+    await this.assertLimit(tenantId, 'label-photo-analysis');
+
+    // Breaker gate happens inside LlmService.analyzeLabelPhoto (keyed on
+    // 'gemini' specifically) — it degrades gracefully to a mock-shaped
+    // result rather than throwing, so no separate short-circuit needed here.
+    const { buffer, contentType } = await this.fetchMediaWithType(mediaId);
+
+    try {
+      const result = await this.llmService.analyzeLabelPhoto(buffer, contentType, options);
+      await this.persistAndTrackLabelPhoto(tenantId, result, mediaId);
+      await this.audit.logAction({
+        action: 'CREATE',
+        resourceType: 'AiExtraction',
+        resourceId: mediaId,
+        userId: this.contextService.getUserId() ?? 'system',
+        tenantId,
+        success: Boolean(result.productName),
+        metadata: {
+          operation: 'label-photo-analysis',
+          provider: result.provider,
+          confidence: result.confidence,
+          hasNutritionPanel: Boolean(result.nutritionPanel),
+        },
+      });
+      return result;
+    } catch (err) {
+      const fallback: LabelAnalysisResult = {
+        confidence: 0,
+        provider: 'mock',
+        cost: 0,
+        durationMs: 0,
+        warnings: [(err as Error).message],
+      };
+      await this.persistAndTrackLabelPhoto(tenantId, fallback, mediaId);
+      throw err instanceof BusinessException
+        ? err
+        : new BusinessException(ErrorCode.AI_SERVICE_ERROR, (err as Error).message);
+    }
+  }
+
   async imageFallbackScan(mediaId: string): Promise<ImageFallbackResult> {
     const tenantId = this.tenantId();
     await this.assertLimit(tenantId, 'image-fallback');
@@ -403,6 +454,24 @@ export class AiOrchestratorService implements IAiOrchestratorService {
     return this.s3.downloadObject(media.s3Key);
   }
 
+  /**
+   * Same lookup as `fetchMediaBuffer`, but also returns the asset's
+   * content type — needed for Gemini's `inline_data.mime_type` field.
+   * Kept separate rather than changing `fetchMediaBuffer`'s contract,
+   * which four other call sites already depend on unchanged.
+   */
+  private async fetchMediaWithType(
+    mediaId: string,
+  ): Promise<{ buffer: Buffer; contentType: string }> {
+    const tenantId = this.contextService.getTenantId() ?? null;
+    const media = await this.mediaService.getById(mediaId, tenantId).catch(() => null);
+    if (!media) {
+      throw new DomainNotFoundException('media_assets', mediaId);
+    }
+    const buffer = await this.s3.downloadObject(media.s3Key);
+    return { buffer, contentType: media.contentType };
+  }
+
   private tenantId(): string {
     return this.contextService.getTenantId() ?? AI_SYSTEM_TENANT_ID;
   }
@@ -515,6 +584,52 @@ export class AiOrchestratorService implements IAiOrchestratorService {
         ingredients: result.ingredients,
         allergens: result.allergens,
         nutritionalInfo: result.nutritionalInfo,
+        healthFlags: result.healthFlags,
+        summary: result.summary,
+      },
+      confidence: String(result.confidence),
+      durationMs: result.durationMs,
+      cost: String(result.cost),
+      userId: this.contextService.getUserId() ?? null,
+      requestId: this.contextService.getRequestId(),
+      metadata: result.warnings && result.warnings.length > 0 ? { warnings: result.warnings } : {},
+    });
+  }
+
+  private async persistAndTrackLabelPhoto(
+    tenantId: string,
+    result: LabelAnalysisResult,
+    mediaId: string,
+  ): Promise<void> {
+    await this.usageTracker.trackUsage({
+      tenantId,
+      operation: 'label-photo-analysis',
+      provider: result.provider,
+      cost: result.cost,
+      durationMs: result.durationMs,
+      success: !!result.productName,
+      resourceId: mediaId,
+      userId: this.contextService.getUserId(),
+    });
+    await this.extractionsRepo.recordSafely({
+      tenantId,
+      operation: 'label-photo-analysis',
+      provider: result.provider,
+      sourceType: 'media',
+      sourceId: mediaId,
+      success: result.productName ? 'true' : 'false',
+      extractedText: truncateForStorage(
+        [result.productName, result.brand, result.summary].filter(Boolean).join('\n'),
+        AI_EXTRACTED_TEXT_MAX,
+      ),
+      extractedData: {
+        productName: result.productName,
+        brand: result.brand,
+        category: result.category,
+        ingredients: result.ingredients,
+        allergens: result.allergens,
+        nutritionalInfo: result.nutritionalInfo,
+        nutritionPanel: result.nutritionPanel,
         healthFlags: result.healthFlags,
         summary: result.summary,
       },

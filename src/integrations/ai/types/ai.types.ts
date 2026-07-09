@@ -24,6 +24,7 @@ export type AiOperation =
   | 'ocr-batch'
   | 'ocr-text'
   | 'label-analysis'
+  | 'label-photo-analysis'
   | 'image-fallback'
   | 'report-summary'
   | 'product-enrichment'
@@ -79,6 +80,30 @@ export interface LabelAnalysisResult {
   ingredients?: string[];
   allergens?: string[];
   nutritionalInfo?: Record<string, number>;
+  /**
+   * Fixed-column nutrition shape, populated ONLY by the photo-analysis path
+   * (`analyzeLabelPhoto`) — deliberately mirrors `NutritionPanelSchema`
+   * (`modules/barcode-learning/dto/nutrition-panel.dto.ts`), which itself
+   * mirrors `product_nutrition`'s DB columns, so a result can upsert
+   * straight into the catalog with no translation step. Every value that
+   * survives is one `NutritionPanelSchema.safeParse()` already validated —
+   * see `LlmService.parseLabelPhotoResponse`. `nutritionalInfo` above stays
+   * populated too (generic key→number map) for parity with the text-based
+   * analysis path.
+   */
+  nutritionPanel?: {
+    servingSize?: number;
+    servingUnit?: string;
+    calories?: number;
+    protein?: number;
+    carbohydrates?: number;
+    sugars?: number;
+    fat?: number;
+    saturatedFat?: number;
+    transFat?: number;
+    fiber?: number;
+    sodium?: number;
+  };
   /**
    * Plain-language, non-alarmist health summary. Populated by the
    * text-transcript analysis path (on-device OCR → Gemini) that backs the
@@ -239,6 +264,19 @@ export interface ILlmProvider {
   readonly name: AiProvider;
   /** Generic completion. Implementations must respect `options.timeoutMs`. */
   complete(prompt: string, options?: LlmOptions): Promise<LlmResult>;
+  /**
+   * Multimodal completion — a prompt plus one inline image. Optional: only
+   * providers whose API natively accepts image input implement this (today,
+   * `GeminiLlmProvider`). Callers that need it must inject the concrete
+   * provider directly rather than going through `LLM_PROVIDER_TOKEN`'s
+   * generic cascade, since the active generic provider may not support
+   * vision at all (see `LlmService.analyzeLabelPhoto`).
+   */
+  completeVision?(
+    image: { data: Buffer; mimeType: string },
+    prompt: string,
+    options?: LlmOptions,
+  ): Promise<LlmResult>;
   isConfigured(): boolean;
 }
 
@@ -248,6 +286,7 @@ export interface IAiOrchestratorService {
   extractText(mediaId: string, options?: OcrOptions): Promise<OcrResult>;
   analyzeProductLabel(mediaId: string): Promise<LabelAnalysisResult>;
   analyzeLabelText(transcript: string, options?: LlmOptions): Promise<LabelAnalysisResult>;
+  analyzeLabelPhoto(mediaId: string, options?: LlmOptions): Promise<LabelAnalysisResult>;
   imageFallbackScan(mediaId: string): Promise<ImageFallbackResult>;
   generateReportSummary(reportData: unknown, options?: LlmOptions): Promise<LlmResult>;
   explainIngredient(slug: string, options?: LlmOptions): Promise<IngredientExplanationResult>;

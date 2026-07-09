@@ -9,7 +9,9 @@ import {
 } from '../ai.constants';
 import { AiCircuitBreakerService } from './ai-circuit-breaker.service';
 import { AiExplanationCacheRepository } from '../repositories/ai-explanation-cache.repository';
+import { GeminiLlmProvider } from '../providers/gemini-llm.provider';
 import { MockAiProvider } from '../providers/mock-ai.provider';
+import { NutritionPanelSchema } from '@/modules/barcode-learning/dto/nutrition-panel.dto';
 import {
   ILlmProvider,
   IngredientExplanationResult,
@@ -46,6 +48,12 @@ export class LlmService {
     private readonly breaker: AiCircuitBreakerService,
     private readonly cacheRepo: AiExplanationCacheRepository,
     private readonly logger: LoggerService,
+    // Injected directly (not via LLM_PROVIDER_TOKEN) — the generic
+    // provider cascade resolves NVIDIA before Gemini when both are
+    // configured (ai.module.ts), and NVIDIA's provider is text-only.
+    // analyzeLabelPhoto needs vision specifically, so it must always talk
+    // to Gemini regardless of which provider the generic cascade picked.
+    private readonly geminiProvider: GeminiLlmProvider,
   ) {}
 
   /**
@@ -236,6 +244,69 @@ export class LlmService {
     return this.parseLabelResponse(llm);
   }
 
+  /**
+   * Parse a product-label PHOTO into a structured analysis via Gemini's
+   * vision-native multimodal API — the image is sent directly, not
+   * flattened to text first. This is the fix for curved/warped labels
+   * where on-device OCR's flatten-to-text-then-regex approach loses table
+   * geometry (a nutrient's name and its value end up on unpredictably
+   * different "lines" once curvature scrambles ML Kit's own reading
+   * order): a vision model reads the table as an image, so it isn't
+   * subject to that failure mode.
+   *
+   * Deliberately talks to `geminiProvider` directly, not the generic
+   * `complete()`/provider cascade (see the constructor comment — NVIDIA
+   * wins the generic cascade when both are configured, and it's
+   * text-only). Mirrors `complete()`'s own isConfigured/circuit-breaker/
+   * graceful-degrade discipline so this never throws for a configuration
+   * or availability reason — failures return a mock-shaped, honest
+   * "unavailable" result, same contract as `analyzeLabelText`.
+   */
+  async analyzeLabelPhoto(
+    imageBuffer: Buffer,
+    mimeType: string,
+    options: LlmOptions = {},
+  ): Promise<LabelAnalysisResult> {
+    if (!this.geminiProvider.isConfigured() || !this.breaker.isAllowed('gemini')) {
+      return {
+        confidence: 0,
+        provider: 'mock',
+        cost: 0,
+        durationMs: 0,
+        warnings: ['Gemini vision unavailable — falling back to on-device scan'],
+      };
+    }
+
+    const locale = options.locale ?? 'en';
+    const prompt = this.buildLabelPhotoPrompt(locale);
+    try {
+      const llm = await this.geminiProvider.completeVision(
+        { data: imageBuffer, mimeType },
+        prompt,
+        {
+          ...options,
+          timeoutMs: options.timeoutMs ?? AI_LLM_DEFAULT_TIMEOUT_MS,
+          json: true,
+        },
+      );
+      this.breaker.recordSuccess('gemini');
+      return this.parseLabelPhotoResponse(llm);
+    } catch (err) {
+      this.breaker.recordFailure('gemini');
+      this.logger.warn('ai.llm.photo_fallback_to_mock', {
+        provider: 'gemini',
+        error: { name: (err as Error).name, message: (err as Error).message },
+      });
+      return {
+        confidence: 0,
+        provider: 'mock',
+        cost: 0,
+        durationMs: 0,
+        warnings: ['Photo analysis failed — falling back to on-device scan'],
+      };
+    }
+  }
+
   private buildLabelPrompt(transcript: string, locale: string): string {
     return [
       'You are a food-label analyst. You are given the raw OCR transcript of a',
@@ -303,6 +374,137 @@ export class LlmService {
         warnings: ['Could not parse label analysis — try a clearer photo'],
       };
     }
+  }
+
+  private buildLabelPhotoPrompt(locale: string): string {
+    return [
+      'You are a food-label analyst. You are given a PHOTO of a packaged',
+      'food/grocery product label — read it directly, including any',
+      'nutrition-facts table, even if the pack surface is curved or the',
+      'table columns are not perfectly aligned in the image.',
+      `Respond in ${locale === 'en' ? 'English' : locale}.`,
+      'Return STRICT JSON with these keys:',
+      '  productName (string or null), brand (string or null),',
+      '  category (string or null), ingredients (array of strings),',
+      '  allergens (array of strings),',
+      '  nutrition (object with these NUMBER-OR-NULL keys, values per the',
+      '  serving basis printed on the label — usually "per 100g" or "per',
+      '  100ml" — report the printed number as-is, do not convert units):',
+      '    servingSize (number), servingUnit ("g" or "ml"),',
+      '    calories (kcal), protein (g), carbohydrates (g), sugars (g),',
+      '    fat (g), saturatedFat (g), transFat (g), fiber (g), sodium (mg),',
+      '  healthFlags (array of short concern strings like "high sugar",',
+      '  "ultra-processed", "high sodium"),',
+      '  summary (one plain, non-alarmist sentence under 200 characters).',
+      'Never invent a value that is not actually visible on the label — use',
+      'null for any field you cannot read, rather than guessing. Do not',
+      'include any text outside the JSON object.',
+    ].join('\n');
+  }
+
+  private parseLabelPhotoResponse(llm: LlmResult): LabelAnalysisResult {
+    const base: Pick<LabelAnalysisResult, 'provider' | 'cost' | 'durationMs'> = {
+      provider: llm.provider,
+      cost: llm.cost,
+      durationMs: llm.durationMs,
+    };
+    try {
+      const cleaned = this.extractJsonCandidate(llm.text);
+      const parsed = JSON.parse(cleaned) as {
+        productName?: string | null;
+        brand?: string | null;
+        category?: string | null;
+        ingredients?: unknown;
+        allergens?: unknown;
+        nutrition?: unknown;
+        healthFlags?: unknown;
+        summary?: string | null;
+      };
+
+      const productName = this.shortString(parsed.productName ?? undefined);
+      const nutritionPanel = this.parseNutritionPanel(parsed.nutrition);
+      const result: LabelAnalysisResult = {
+        ...base,
+        productName,
+        brand: this.shortString(parsed.brand ?? undefined),
+        category: this.shortString(parsed.category ?? undefined),
+        ingredients: this.stringArray(parsed.ingredients),
+        allergens: this.stringArray(parsed.allergens),
+        nutritionalInfo: nutritionPanel
+          ? Object.fromEntries(
+              Object.entries(nutritionPanel).filter(
+                (entry): entry is [string, number] => typeof entry[1] === 'number',
+              ),
+            )
+          : {},
+        nutritionPanel,
+        healthFlags: this.stringArray(parsed.healthFlags),
+        summary: this.shortString(parsed.summary ?? undefined),
+        // A vision-native read that got a name AND at least one nutrition
+        // field is a strong result; name-only is still useful but weaker.
+        confidence: productName ? (nutritionPanel ? 0.8 : 0.6) : 0.3,
+      };
+      if (llm.truncated) {
+        result.warnings = ['AI service degraded — result may be incomplete'];
+        result.confidence = Math.min(result.confidence, 0.3);
+      }
+      return result;
+    } catch {
+      return {
+        ...base,
+        confidence: 0,
+        warnings: ['Could not parse photo analysis — try a clearer photo'],
+      };
+    }
+  }
+
+  /**
+   * Validates the model's nutrition sub-object against the SAME Zod schema
+   * (`NutritionPanelSchema`) the rest of the backend already uses as the
+   * single source of truth for "is this nutrition value sane" — reusing
+   * it here means one place defines what's a plausible value, instead of
+   * a second, possibly-inconsistent set of bounds. Any individual field
+   * that fails validation (a hallucinated/out-of-range value) is dropped
+   * rather than discarding the whole nutrition result — a partially
+   * useful read beats none.
+   */
+  private parseNutritionPanel(value: unknown): LabelAnalysisResult['nutritionPanel'] {
+    if (value === null || typeof value !== 'object') return undefined;
+    const raw = value as Record<string, unknown>;
+    const candidate: Record<string, unknown> = {};
+    const numericKeys = [
+      'servingSize',
+      'calories',
+      'protein',
+      'carbohydrates',
+      'sugars',
+      'fat',
+      'saturatedFat',
+      'transFat',
+      'fiber',
+      'sodium',
+    ];
+    for (const key of numericKeys) {
+      const v = raw[key];
+      if (typeof v === 'number' && Number.isFinite(v)) candidate[key] = v;
+    }
+    if (typeof raw.servingUnit === 'string' && raw.servingUnit.trim()) {
+      candidate.servingUnit = raw.servingUnit.trim().slice(0, 10);
+    }
+    if (Object.keys(candidate).length === 0) return undefined;
+
+    const parsed = NutritionPanelSchema.safeParse(candidate);
+    if (parsed.success) return parsed.data;
+
+    // Partial validity: drop only the offending field(s), keep the rest —
+    // safeParse's error tells us exactly which keys failed.
+    const badKeys = new Set(parsed.error.issues.map((issue) => issue.path[0]));
+    const filtered = Object.fromEntries(
+      Object.entries(candidate).filter(([k]) => !badKeys.has(k)),
+    );
+    if (Object.keys(filtered).length === 0) return undefined;
+    const retry = NutritionPanelSchema.safeParse(filtered);
+    return retry.success ? retry.data : undefined;
   }
 
   private stringArray(value: unknown): string[] {

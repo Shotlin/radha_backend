@@ -65,6 +65,20 @@ export const LabelTextAnalyzeRequestSchema = z
   .strict();
 export type LabelTextAnalyzeRequestDto = z.infer<typeof LabelTextAnalyzeRequestSchema>;
 
+/**
+ * Photo-based label analysis — the vision-native counterpart to
+ * `LabelTextAnalyzeRequestSchema`. `mediaId` references a photo already
+ * uploaded via the standard presigned-URL flow (`MediaService`); this
+ * endpoint never receives raw file bytes directly.
+ */
+export const LabelPhotoAnalyzeRequestSchema = z
+  .object({
+    mediaId: UUID,
+    locale: z.string().regex(LOCALE_RE, 'invalid locale').optional().default('en'),
+  })
+  .strict();
+export type LabelPhotoAnalyzeRequestDto = z.infer<typeof LabelPhotoAnalyzeRequestSchema>;
+
 /* ─────────────────── Report summary ─────────────────── */
 
 export const ReportSummaryRequestSchema = z
@@ -120,6 +134,7 @@ export const LimitCheckQuerySchema = z
       'ocr-batch',
       'ocr-text',
       'label-analysis',
+      'label-photo-analysis',
       'image-fallback',
       'report-summary',
       'product-enrichment',

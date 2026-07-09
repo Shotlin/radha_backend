@@ -44,6 +44,12 @@ export const AI_OPERATION_UNIT_COST: Record<AiOperation, number> = {
   'ocr-batch': 0,
   'ocr-text': 0,
   'label-analysis': 0.001,
+  // Placeholder estimate for a Gemini Flash vision call (inline image +
+  // ~300-token prompt, ~500-800 output tokens) — confirm against actual
+  // Gemini pricing before assuming this is exact. Currently configured to
+  // run on Gemini's FREE tier (see AI_DEFAULT_LIMITS below), so this cost
+  // figure is for future paid-tier reference only, not a live spend today.
+  'label-photo-analysis': 0.003,
   'image-fallback': 0.0015,
   'report-summary': 0.005,
   'product-enrichment': 0.003,
@@ -64,6 +70,15 @@ export const AI_DEFAULT_LIMITS: Record<AiOperation, OperationLimits> = {
   'ocr-batch': { monthly: 10_000, daily: 1_000 },
   'ocr-text': { monthly: 10_000, daily: 1_000 },
   'label-analysis': { monthly: 100, daily: 20 },
+  // Per-tenant cap for the new photo->structured-JSON path. Deliberately
+  // conservative: Gemini's FREE tier (Google AI Studio key, no billing) is
+  // a GLOBAL ceiling shared by the whole backend's single API key — roughly
+  // 1,500 requests/day, 10-15/minute (2026 published limits) — not a
+  // per-tenant allowance. This per-tenant cap keeps a few simultaneously
+  // active tenants safely under that shared ceiling. Raise only after
+  // confirming actual multi-tenant concurrent usage, and/or upgrading to a
+  // paid Gemini tier (trivially cheap — see AI_OPERATION_UNIT_COST above).
+  'label-photo-analysis': { monthly: 300, daily: 50 },
   'image-fallback': { monthly: 200, daily: 30 },
   'report-summary': { monthly: 100, daily: 20 },
   'product-enrichment': { monthly: 500, daily: 50 },

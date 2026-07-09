@@ -32,6 +32,8 @@ import {
   IngredientSlugSchema,
   LabelAnalyzeRequestDto,
   LabelAnalyzeRequestSchema,
+  LabelPhotoAnalyzeRequestDto,
+  LabelPhotoAnalyzeRequestSchema,
   LabelTextAnalyzeRequestDto,
   LabelTextAnalyzeRequestSchema,
   LimitCheckQueryDto,
@@ -51,6 +53,7 @@ import {
  *   POST /api/v1/ai/ocr/batch           OCR for a batch number
  *   POST /api/v1/ai/ocr/text            Generic OCR
  *   POST /api/v1/ai/label/analyze       Label analysis (paid)
+ *   POST /api/v1/ai/label/analyze-photo Label analysis from a photo, vision-native
  *   POST /api/v1/ai/image-fallback      Req 38 backing endpoint
  *   POST /api/v1/ai/report/summary      LLM report summary
  *   GET  /api/v1/ai/ingredients/:slug/explanation   Req 45 backing endpoint
@@ -159,6 +162,25 @@ export class AiController {
     @Body(new ZodValidationPipe(LabelTextAnalyzeRequestSchema)) dto: LabelTextAnalyzeRequestDto,
   ): Promise<unknown> {
     return this.ai.analyzeLabelText(dto.transcript, dto.locale);
+  }
+
+  /**
+   * Vision-native label analysis — the photo is read directly by the LLM
+   * instead of being flattened to text first. `mediaId` references a photo
+   * already uploaded via the standard presigned-URL flow. Same consumer
+   * access model as `analyze-text` (this is the "Add this product" wizard's
+   * primary nutrition-extraction path, not a staff/admin catalog tool).
+   */
+  @Post('label/analyze-photo')
+  @Version('1')
+  @HttpCode(200)
+  @Roles('owner', 'manager', 'staff', 'admin', 'consumer')
+  @RequirePermissions('consumer:scan')
+  @RequireTenant()
+  analyzeLabelPhoto(
+    @Body(new ZodValidationPipe(LabelPhotoAnalyzeRequestSchema)) dto: LabelPhotoAnalyzeRequestDto,
+  ): Promise<unknown> {
+    return this.ai.analyzeLabelPhoto(dto.mediaId, dto.locale);
   }
 
   /* ─────────────────── LLM ─────────────────── */
