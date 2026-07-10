@@ -230,6 +230,10 @@ export class S3Service implements IS3Service, OnModuleDestroy {
         accessKeyId: this.config.aws.accessKeyId,
         secretAccessKey: this.config.aws.secretAccessKey,
       },
+      // Self-hosted MinIO instead of real AWS S3 — see AWS_S3_ENDPOINT doc
+      // in env.schema.ts. Unset means "real AWS," matching prior behavior.
+      ...(this.config.aws.s3.endpoint ? { endpoint: this.config.aws.s3.endpoint } : {}),
+      forcePathStyle: this.config.aws.s3.forcePathStyle,
     });
     return { sdk: this.sdk, client: this.clientInstance };
   }

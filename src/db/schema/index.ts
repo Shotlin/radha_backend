@@ -46,3 +46,4 @@ export * from './shopping-lists';
 export * from './verified-badges';
 export * from './barcode-learning';
 export * from './batch-dates';
+export * from './expiry-reminder-sent';

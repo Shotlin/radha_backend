@@ -85,6 +85,18 @@ export const EnvSchema = z.object({
   AWS_S3_BUCKET: z.string().default('radha-dev-media'),
   AWS_S3_REGION: z.string().default('ap-south-1'),
   AWS_S3_PRESIGNED_EXPIRY_SECONDS: z.coerce.number().int().min(60).max(43200).default(600),
+  // Self-hosted S3-compatible target (MinIO) instead of real AWS — unset
+  // means "talk to real AWS S3" (the SDK's own default). When set, this is
+  // the PUBLIC URL a phone can actually reach; MinIO itself may sit behind
+  // an internal-only port with nginx proxying this public path to it.
+  AWS_S3_ENDPOINT: z
+    .string()
+    .optional()
+    .transform((v) => (v === '' ? undefined : v)),
+  // MinIO (and most non-AWS S3-compatible stores) need path-style bucket
+  // addressing (`endpoint/bucket/key`) rather than AWS's virtual-hosted
+  // style (`bucket.endpoint/key`).
+  AWS_S3_FORCE_PATH_STYLE: envBool(false),
   AWS_CLOUDFRONT_DOMAIN: z
     .string()
     .optional()

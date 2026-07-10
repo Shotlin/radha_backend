@@ -40,6 +40,9 @@ export interface S3Config {
   bucket: string;
   region: string;
   presignedUrlExpirySeconds: number;
+  /** Set for a self-hosted S3-compatible store (MinIO); unset ⇒ real AWS S3. */
+  endpoint?: string;
+  forcePathStyle: boolean;
 }
 
 export interface CloudFrontConfig {

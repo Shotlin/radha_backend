@@ -12,6 +12,7 @@ import { TenantsModule } from '@/modules/tenants/tenants.module';
 import { BullMqBootstrapService } from './bullmq-queue.provider';
 import { DailyAggregationCron } from './cron/daily-aggregation.cron';
 import { DataRetentionCron } from './cron/data-retention.cron';
+import { ExpiryRemindersCron } from './cron/expiry-reminders.cron';
 import { ExpiryStatusUpdateCron } from './cron/expiry-status-update.cron';
 import { NotificationDispatchCron } from './cron/notification-dispatch.cron';
 import { ScheduledReportsCron } from './cron/scheduled-reports.cron';
@@ -67,6 +68,7 @@ import { SessionCleanupCron } from './cron/session-cleanup.cron';
     /* Cron jobs */
     DailyAggregationCron,
     ExpiryStatusUpdateCron,
+    ExpiryRemindersCron,
     SessionCleanupCron,
     DataRetentionCron,
     ScheduledReportsCron,

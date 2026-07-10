@@ -120,6 +120,8 @@ export class ConfigService implements IConfigService {
         bucket: this.read('AWS_S3_BUCKET'),
         region: this.read('AWS_S3_REGION'),
         presignedUrlExpirySeconds: this.read('AWS_S3_PRESIGNED_EXPIRY_SECONDS'),
+        endpoint: this.readOptional('AWS_S3_ENDPOINT'),
+        forcePathStyle: this.read('AWS_S3_FORCE_PATH_STYLE'),
       },
       cloudfront: {
         domain: this.readOptional('AWS_CLOUDFRONT_DOMAIN') ?? '',
