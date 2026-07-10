@@ -10,7 +10,8 @@ import { baseColumns } from './_base';
  * conflict means the notification was already delivered for that window and
  * the cron silently skips it.
  *
- * `window` encodes the reminder bucket in days: 7 | 2 | 0.
+ * `reminderWindow` (DB column: reminder_window) encodes the bucket in days: 7 | 2 | 0.
+ * Named reminder_window (not window) because window is a Postgres reserved word.
  * No tenant_id column — resolved at query time from expiry_records.
  */
 export const expiryReminderSent = pgTable(
@@ -19,10 +20,10 @@ export const expiryReminderSent = pgTable(
     ...baseColumns,
     userId: uuid('user_id').notNull(),
     expiryRecordId: uuid('expiry_record_id').notNull(),
-    window: smallint('window').notNull(), // 7 | 2 | 0
+    reminderWindow: smallint('reminder_window').notNull(), // 7 | 2 | 0
   },
   (t) => ({
-    uniq: uniqueIndex('expiry_reminder_sent_uniq').on(t.userId, t.expiryRecordId, t.window),
+    uniq: uniqueIndex('expiry_reminder_sent_uniq').on(t.userId, t.expiryRecordId, t.reminderWindow),
     recordIdx: index('expiry_reminder_record_idx').on(t.expiryRecordId),
   }),
 );

@@ -22,7 +22,7 @@ import { TenantsRepository } from '@/modules/tenants/repositories/tenants.reposi
  *   2 → "expiry-near" (2 days away)
  *   0 → "expiry-red"  (expires today)
  *
- * Dedupe: `expiry_reminder_sent (user_id, expiry_record_id, window)`
+ * Dedupe: `expiry_reminder_sent (user_id, expiry_record_id, reminder_window)`
  * UNIQUE constraint makes any insert a no-op on conflict — a safe
  * re-run never double-sends.
  *
@@ -132,7 +132,7 @@ export class ExpiryRemindersCron {
         .values({
           userId,
           expiryRecordId: row.id,
-          window,
+          reminderWindow: window,
         })
         .onConflictDoNothing()
         .returning({ id: expiryReminderSent.id });
@@ -161,7 +161,7 @@ export class ExpiryRemindersCron {
             and(
               eq(expiryReminderSent.userId, userId),
               eq(expiryReminderSent.expiryRecordId, row.id),
-              eq(expiryReminderSent.window, sql`${window}::smallint`),
+              eq(expiryReminderSent.reminderWindow, sql`${window}::smallint`),
             ),
           )
           .catch(() => {
