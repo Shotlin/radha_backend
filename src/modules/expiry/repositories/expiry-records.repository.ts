@@ -237,4 +237,22 @@ export class ExpiryRecordsRepository extends BaseRepository<
       })
       .where(eq(expiryRecords.id, id));
   }
+
+  /** Quick Audit scan mode (Feature C) — stock-level check-in, touches only
+   * `remainingQuantity`. Deliberately separate from `updateStatus`: this
+   * never changes `status`/`daysRemaining` (those are expiry-date-driven,
+   * not quantity-driven). */
+  async updateQuantity(
+    id: string,
+    remainingQuantity: number,
+    tx?: Transaction,
+  ): Promise<ExpiryRecordRow> {
+    const scope = tx ?? this.db;
+    const [row] = await scope
+      .update(expiryRecords)
+      .set({ remainingQuantity, updatedAt: new Date() })
+      .where(eq(expiryRecords.id, id))
+      .returning();
+    return row as ExpiryRecordRow;
+  }
 }

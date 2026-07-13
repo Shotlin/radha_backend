@@ -8,7 +8,11 @@ import { ProductsRepository } from '@/modules/products/products.repository';
 import { IdempotencyService } from '@/modules/sync/services/idempotency.service';
 import { AuditLogService } from '@/observability/audit-log.service';
 
-import { CreateExpiryRecordDto, ListExpiryRecordsQueryDto } from './dto/expiry.dto';
+import {
+  CreateExpiryRecordDto,
+  ListExpiryRecordsQueryDto,
+  UpdateExpiryQuantityDto,
+} from './dto/expiry.dto';
 import { ExpiryAlertsRepository } from './repositories/expiry-alerts.repository';
 import { ExpiryRecordsRepository } from './repositories/expiry-records.repository';
 import { ExpiryAlertService } from './services/expiry-alert.service';
@@ -29,6 +33,7 @@ import type {
 export type ExpiryRecordWithProductName = ExpiryRecordRow & { productName: string | null };
 
 const IDEMPOTENCY_PATH_LABEL = 'expiry-records';
+const UPDATE_QUANTITY_IDEMPOTENCY_PATH_LABEL = 'expiry-records/:id/quantity';
 
 @Injectable()
 export class ExpiryService {
@@ -149,6 +154,75 @@ export class ExpiryService {
     if (!row) throw new DomainNotFoundException('ExpiryRecord', id);
     const [withNames] = await this._withProductNames([row]);
     return withNames;
+  }
+
+  /**
+   * Quick Audit scan mode (Feature C) — a store-walk stock check-in: scan a
+   * barcode, see the existing record, bump `remainingQuantity` up/down,
+   * save. Mirrors `createRecord`'s explicit-in-service idempotency pattern
+   * for the same documented reason (the app-wide `IdempotencyMiddleware`
+   * runs before guards, so `req.user` isn't populated yet on a
+   * `@UseGuards(JwtAuthGuard)` route).
+   */
+  async updateQuantity(
+    tenantId: string,
+    userId: string,
+    id: string,
+    dto: UpdateExpiryQuantityDto,
+    idempotencyKey?: string,
+  ): Promise<ExpiryRecordWithProductName> {
+    const requestHash = idempotencyKey
+      ? this.idempotency.hashRequest({
+          method: 'PATCH',
+          path: UPDATE_QUANTITY_IDEMPOTENCY_PATH_LABEL,
+          body: dto,
+        })
+      : null;
+
+    if (idempotencyKey && requestHash) {
+      const cached = await this.idempotency.lookup(idempotencyKey);
+      if (cached) {
+        if (cached.requestHash !== requestHash) {
+          throw new ConflictException({
+            code: 'IDEMPOTENCY_KEY_REUSE',
+            message: 'Idempotency-Key reused with a different request payload',
+          });
+        }
+        return cached.responseBody as ExpiryRecordWithProductName;
+      }
+    }
+
+    const existing = await this.recordsRepo.findByIdInTenant(id, tenantId);
+    if (!existing) throw new DomainNotFoundException('ExpiryRecord', id);
+
+    const updated = await this.recordsRepo.updateQuantity(id, dto.remainingQuantity);
+
+    await this.audit.logAction({
+      action: 'UPDATE',
+      resourceType: 'ExpiryRecord',
+      resourceId: id,
+      userId,
+      tenantId,
+      success: true,
+      metadata: {
+        field: 'remainingQuantity',
+        from: existing.remainingQuantity,
+        to: dto.remainingQuantity,
+      },
+    });
+
+    const [withName] = await this._withProductNames([updated]);
+
+    if (idempotencyKey && requestHash) {
+      await this.idempotency.persist({
+        key: idempotencyKey,
+        userId,
+        requestHash,
+        response: { status: 200, body: withName },
+      });
+    }
+
+    return withName;
   }
 
   async list(

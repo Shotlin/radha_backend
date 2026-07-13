@@ -5,6 +5,7 @@ import {
   Headers,
   HttpCode,
   Param,
+  Patch,
   Post,
   Put,
   Query,
@@ -51,6 +52,8 @@ import {
   ResolveAlertSchema,
   SetThresholdDto,
   SetThresholdSchema,
+  UpdateExpiryQuantityDto,
+  UpdateExpiryQuantitySchema,
 } from './dto/expiry.dto';
 import { ExpiryService } from './expiry.service';
 import { ExpiryAlertService } from './services/expiry-alert.service';
@@ -183,6 +186,27 @@ export class ExpiryController {
     @CurrentTenant() tenantId: string,
   ): Promise<unknown> {
     return this.expiry.findById(tenantId, id);
+  }
+
+  /**
+   * Quick Audit scan mode (Feature C) — updates only `remainingQuantity`
+   * on an existing record. Deliberately narrow (see
+   * `UpdateExpiryQuantitySchema`'s comment): this is a stock-level check-in,
+   * not a general record edit.
+   */
+  @Patch('expiry-records/:id')
+  @Version('1')
+  @Roles('owner', 'manager', 'staff', 'admin')
+  @RequirePermissions('inventory:write')
+  @RequireTenant()
+  updateQuantity(
+    @Param('id', new ParseUuidPipe()) id: string,
+    @Body(new ZodValidationPipe(UpdateExpiryQuantitySchema)) dto: UpdateExpiryQuantityDto,
+    @CurrentTenant() tenantId: string,
+    @CurrentUser('id') userId: string,
+    @Headers('idempotency-key') idempotencyKey?: string,
+  ): Promise<unknown> {
+    return this.expiry.updateQuantity(tenantId, userId, id, dto, idempotencyKey);
   }
 
   @Get('expiry-records')

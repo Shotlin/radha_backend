@@ -31,6 +31,19 @@ export const CreateExpiryRecordSchema = z
   });
 export type CreateExpiryRecordDto = z.infer<typeof CreateExpiryRecordSchema>;
 
+/**
+ * Quick Audit scan mode (Feature C) — updates only `remainingQuantity`,
+ * the current-stock-level column, distinct from `quantity` (the
+ * originally-received amount, set once at creation and never touched
+ * again). Kept as a narrow single-field schema rather than reusing/
+ * partialing CreateExpiryRecordSchema so this endpoint can't accidentally
+ * be used to rewrite productId/storeId/dates on an existing record.
+ */
+export const UpdateExpiryQuantitySchema = z.object({
+  remainingQuantity: z.coerce.number().int().min(0).max(100_000),
+});
+export type UpdateExpiryQuantityDto = z.infer<typeof UpdateExpiryQuantitySchema>;
+
 export const ListExpiryRecordsQuerySchema = z.object({
   storeId: z.string().uuid(),
   status: z
