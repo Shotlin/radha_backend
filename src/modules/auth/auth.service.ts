@@ -35,25 +35,23 @@ import { generateOtp, hashOtp, verifyOtp } from './utils/otp.utils';
 export class AuthService {
   // Permanent demo accounts — hardcoded so hot-reload picks them up without env
   // restart, and active in every environment (including production) since
-  // they're used as live login credentials for demos. Safe by construction:
-  // demoOtpFor() below only ever matches these two exact numbers, so this can
-  // never become a bypass for a real user's mobile number. Two numbers so
-  // client demos can show both surfaces: the business number already carries
-  // an owner role + store from earlier activation;
-  // the personal number is intentionally never activated, so it resolves to
-  // a fresh `role: 'consumer'` account (see resolveOrCreateUser) — business
-  // vs personal mode then falls out of the existing role-based routing with
-  // no extra logic needed here.
-  private static readonly DEMO_MOBILE = '9999999999';
-  private static readonly DEMO_OTP = '123456';
-  private static readonly DEMO_MOBILE_PERSONAL = '8000000000';
-  private static readonly DEMO_OTP_PERSONAL = '654321';
+  // they're used as live login credentials for demos. demoOtpFor() below
+  // only ever matches the exact numbers in DEMO_ACCOUNTS, so this can never
+  // become a bypass for an arbitrary real user's mobile number — but note
+  // each entry here IS a standing, SMS-free login bypass for that specific
+  // number, permanently, in production. Only add real/dialable numbers
+  // (as opposed to obviously-fake demo patterns like 9999999999/8000000000)
+  // with the founder's explicit sign-off, since a bypass tied to a real SIM
+  // outlives the founder's control of that number (recycled/lost numbers).
+  private static readonly DEMO_ACCOUNTS: ReadonlyArray<readonly [mobile: string, otp: string]> = [
+    ['9999999999', '123456'], // business demo — owner role + store from earlier activation
+    ['8000000000', '654321'], // personal demo — never activated, resolves to a fresh consumer account
+    ['9724710944', '123456'], // Radha Store admin account — founder-approved 2026-07-19
+  ];
 
   /** Null when `mobile` isn't one of the hardcoded demo accounts. */
   private static demoOtpFor(mobile: string): string | null {
-    if (mobile === AuthService.DEMO_MOBILE) return AuthService.DEMO_OTP;
-    if (mobile === AuthService.DEMO_MOBILE_PERSONAL) return AuthService.DEMO_OTP_PERSONAL;
-    return null;
+    return AuthService.DEMO_ACCOUNTS.find(([m]) => m === mobile)?.[1] ?? null;
   }
 
   constructor(

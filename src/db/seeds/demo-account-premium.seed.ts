@@ -5,7 +5,7 @@ import postgres from 'postgres';
 
 /**
  * One-shot grant: put the hardcoded business demo account
- * (`9999999999`, see `AuthService.DEMO_MOBILE`) on the top-tier `pro`
+ * (`9999999999`, see `AuthService.DEMO_ACCOUNTS`) on the top-tier `pro`
  * plan, permanently and at no charge, so demos can exercise every
  * gated feature without hitting a paywall.
  *
@@ -79,7 +79,7 @@ async function main(): Promise<void> {
     if (!user) {
       console.info(
         `⚠️  No user row for mobile ${DEMO_MOBILE_BUSINESS} yet — log in with the demo OTP once ` +
-          `(see AuthService.DEMO_OTP) to materialise the account, then re-run this seed.`,
+          `(see AuthService.DEMO_ACCOUNTS) to materialise the account, then re-run this seed.`,
       );
       return;
     }
