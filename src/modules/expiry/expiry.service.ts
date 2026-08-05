@@ -27,10 +27,15 @@ import type {
   RecalculationResult,
 } from './types/expiry.types';
 
-/** `ExpiryRecordRow` plus the product's display name, joined in the
- * service layer (spec §B2.2) so the app's expiry list can render a real
- * product name instead of an 8-char product-id token. */
-export type ExpiryRecordWithProductName = ExpiryRecordRow & { productName: string | null };
+/** `ExpiryRecordRow` plus the product's display name and EAN, joined in
+ * the service layer (spec §B2.2) so the app's expiry list/calendar can
+ * render a real product name + barcode instead of an 8-char product-id
+ * token. `ean` addition: the calendar day-detail view needs the barcode
+ * alongside the name so store staff can tell apart same-named SKUs. */
+export type ExpiryRecordWithProductName = ExpiryRecordRow & {
+  productName: string | null;
+  ean: string | null;
+};
 
 const IDEMPOTENCY_PATH_LABEL = 'expiry-records';
 const UPDATE_QUANTITY_IDEMPOTENCY_PATH_LABEL = 'expiry-records/:id/quantity';
@@ -134,7 +139,7 @@ export class ExpiryService {
         metadata: { productId: dto.productId, status, source: dto.source },
       });
 
-      return { ...created, productName: product.name };
+      return { ...created, productName: product.name, ean: product.ean };
     });
 
     if (idempotencyKey && requestHash) {
@@ -246,19 +251,25 @@ export class ExpiryService {
     return this._withProductNames(rows);
   }
 
-  /** Batch-attaches `productName` to each row via one lookup per unique
-   * `productId` (bounded by the query's own `limit`, so this never scans
-   * more products than records returned). No repository/schema join is
-   * needed since `ProductsRepository.findById` already exists. */
+  /** Batch-attaches `productName` + `ean` to each row via one lookup per
+   * unique `productId` (bounded by the query's own `limit`, so this never
+   * scans more products than records returned). No repository/schema join
+   * is needed since `ProductsRepository.findById` already exists. */
   private async _withProductNames(
     rows: ExpiryRecordRow[],
   ): Promise<ExpiryRecordWithProductName[]> {
     const uniqueIds = [...new Set(rows.map((r) => r.productId))];
     const entries = await Promise.all(
-      uniqueIds.map(async (id) => [id, (await this.products.findById(id))?.name ?? null] as const),
+      uniqueIds.map(async (id) => {
+        const product = await this.products.findById(id);
+        return [id, { name: product?.name ?? null, ean: product?.ean ?? null }] as const;
+      }),
     );
-    const nameById = new Map(entries);
-    return rows.map((r) => ({ ...r, productName: nameById.get(r.productId) ?? null }));
+    const infoById = new Map(entries);
+    return rows.map((r) => {
+      const info = infoById.get(r.productId);
+      return { ...r, productName: info?.name ?? null, ean: info?.ean ?? null };
+    });
   }
 
   async findNearExpiry(
