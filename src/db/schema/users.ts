@@ -53,7 +53,13 @@ export const users = pgTable(
     ...softDeleteColumn,
     ...auditColumns,
     tenantId: uuid('tenant_id'),
-    mobile: varchar('mobile', { length: 20 }).notNull(),
+    /**
+     * Nullable since Phase 13 (BE-08 v3 ADDENDUM): a Google-only signup
+     * never collects a phone number. `firebaseUid` below is the primary
+     * identity link for those accounts; `mobile` stays required for the
+     * OTP/demo/legacy-link paths only.
+     */
+    mobile: varchar('mobile', { length: 20 }),
     email: varchar('email', { length: 255 }),
     name: varchar('name', { length: 100 }).notNull().default(''),
     role: userRoleEnum('role').notNull().default('consumer'),
@@ -79,6 +85,21 @@ export const users = pgTable(
      * Nullable; self-references must be rejected at the service layer.
      */
     referredByUserId: uuid('referred_by_user_id'),
+    /**
+     * Phase 13 (BE-08 v3 ADDENDUM) — links this row to its Firebase Auth
+     * identity. Null for phone-only accounts that haven't signed in with
+     * Google yet (or ever). Firebase UIDs are ~28-char alphanumeric
+     * strings, not UUIDs — stored as varchar, not the `uuid` type.
+     */
+    firebaseUid: varchar('firebase_uid', { length: 128 }),
+    /**
+     * Phase 13 — provenance of how this account was created/linked:
+     * 'otp' (original phone signup), 'google' (created via Firebase
+     * Google Sign-In), 'google_linked' (pre-existing phone account later
+     * linked to a Google identity, either by email match or the
+     * legacy-link recovery flow). Informational only, not authorization.
+     */
+    authProvider: varchar('auth_provider', { length: 20 }).notNull().default('otp'),
   },
   (t) => ({
     uniqueMobile: uniqueIndex('users_mobile_unique').on(t.mobile),
@@ -86,6 +107,7 @@ export const users = pgTable(
     byEmail: index('users_email_idx').on(t.email),
     uniqueReferralCode: uniqueIndex('users_referral_code_unique').on(t.referralCode),
     byReferredBy: index('users_referred_by_idx').on(t.referredByUserId),
+    uniqueFirebaseUid: uniqueIndex('users_firebase_uid_unique').on(t.firebaseUid),
   }),
 );
 

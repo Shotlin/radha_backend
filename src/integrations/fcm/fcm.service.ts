@@ -3,24 +3,17 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@/config/config.service';
 import type { FcmFailureReason } from '@/modules/notifications/types/notification.types';
 
+import { FirebaseAdminAppService } from './firebase-admin-app.service';
 import type { FcmSendParams, FcmSendResult, FcmTokenResult, IFcmService } from './fcm.types';
 
 /**
  * BE-24 — FCM (Firebase Cloud Messaging) wrapper.
  *
- * `firebase-admin` is loaded lazily so the API process doesn't pay the
- * SDK init cost when push isn't actually used. The dynamic import
- * mirrors the BE-13 S3 / BE-21 ExcelJS pattern: the SDK is a runtime
- * dep that the package.json declares but the lazy load lets the
- * server boot even if it isn't installed (for unit tests, dev boxes
- * that haven't pulled the heavy dep, etc.).
- *
- * Three init paths are supported:
- *   1. `FCM_SERVICE_ACCOUNT_JSON`   — full service-account JSON inline
- *   2. `FCM_SERVICE_ACCOUNT_BASE64` — base64-encoded JSON
- *   3. nothing — provider returns `available=false` and every send
- *      reports a global error so the router can fall through to the
- *      other channels.
+ * The Firebase Admin app itself is resolved via `FirebaseAdminAppService`
+ * (Phase 13 extraction) — shared with `FirebaseAuthVerifierService`
+ * (Google Sign-In token verification) so both consumers use the same
+ * named app off the same service-account credential. This class owns
+ * only the `messaging()` handle and the send/error-mapping logic.
  *
  * Permanent-failure tokens (FCM error codes
  * `messaging/registration-token-not-registered` and
@@ -30,19 +23,25 @@ import type { FcmSendParams, FcmSendResult, FcmTokenResult, IFcmService } from '
 @Injectable()
 export class FcmService implements IFcmService {
   private readonly logger = new Logger(FcmService.name);
-  private app: unknown = null;
   private messaging: unknown = null;
-  private initialised = false;
-  private initFailed = false;
 
-  constructor(private readonly _config: ConfigService) {
+  constructor(
+    private readonly _config: ConfigService,
+    // Defaulted (not just optional) so existing call sites that construct
+    // `FcmService` directly with one argument — e.g.
+    // `fcm.service.spec.ts`'s `new FcmService(buildConfig())` — keep
+    // compiling unchanged. Nest's DI container always supplies the real
+    // singleton explicitly; the default only ever engages in that kind of
+    // direct-construction test.
+    private readonly firebaseAdminApp: FirebaseAdminAppService = new FirebaseAdminAppService(),
+  ) {
     // ConfigService is reserved for future BE-24 keys (project id) once
     // they're added to the typed env schema.
     void this._config;
   }
 
   isAvailable(): boolean {
-    return !this.initFailed && !!this.readServiceAccountKey();
+    return this.firebaseAdminApp.isAvailable();
   }
 
   async send(params: FcmSendParams): Promise<FcmSendResult> {
@@ -56,9 +55,10 @@ export class FcmService implements IFcmService {
       };
     }
 
+    const wasAvailable = this.firebaseAdminApp.isAvailable();
     const messaging = await this.lazyInit();
     if (!messaging) {
-      const reason = this.initFailed
+      const reason = wasAvailable
         ? 'firebase-admin unavailable'
         : 'FCM credentials not configured';
       return {
@@ -159,85 +159,27 @@ export class FcmService implements IFcmService {
   /* ───────────────────── Internal ───────────────────── */
 
   private async lazyInit(): Promise<unknown> {
-    if (this.initFailed) return null;
-    if (this.initialised) return this.messaging;
+    if (this.messaging) return this.messaging;
 
-    const serviceAccount = this.readServiceAccountKey();
-    if (!serviceAccount) {
-      this.initFailed = true;
-      this.logger.warn('fcm.disabled', { reason: 'no service account configured' });
-      return null;
-    }
+    const app = await this.firebaseAdminApp.getApp();
+    if (!app) return null;
 
     try {
       type FirebaseAdminModule = typeof import('firebase-admin');
       const mod = (await import('firebase-admin').catch(() => null)) as FirebaseAdminModule | null;
       if (!mod) {
-        this.initFailed = true;
         this.logger.warn('fcm.disabled', { reason: 'firebase-admin not installed' });
         return null;
       }
 
-      const apps = mod.apps as Array<{ name: string }>;
-      const existing = apps.find((a) => a?.name === 'radha-fcm');
-      if (existing) {
-        this.app = existing;
-      } else {
-        this.app = mod.initializeApp(
-          {
-            credential: mod.credential.cert(
-              serviceAccount as Parameters<typeof mod.credential.cert>[0],
-            ),
-          },
-          'radha-fcm',
-        );
-      }
-
-      this.messaging = (mod.messaging as (app: unknown) => unknown)(this.app);
-      this.initialised = true;
+      this.messaging = (mod.messaging as (app: unknown) => unknown)(app);
       this.logger.log('fcm.initialised');
       return this.messaging;
     } catch (err) {
-      this.initFailed = true;
       const message = err instanceof Error ? err.message : 'unknown';
       this.logger.error('fcm.init.failed', { message });
       return null;
     }
-  }
-
-  /**
-   * Read the service-account key from env. Two formats supported:
-   *   - `FCM_SERVICE_ACCOUNT_JSON` — inline JSON string
-   *   - `FCM_SERVICE_ACCOUNT_BASE64` — base64-encoded JSON
-   *
-   * Reading via `process.env` directly so the BE-02 typed env schema
-   * stays untouched (BE-24 declares the new vars in its handoff).
-   */
-  private readServiceAccountKey(): Record<string, unknown> | null {
-    const inline = process.env.FCM_SERVICE_ACCOUNT_JSON;
-    if (inline && inline.trim().length > 0) {
-      try {
-        return JSON.parse(inline) as Record<string, unknown>;
-      } catch {
-        this.logger.error('fcm.config.invalid', {
-          reason: 'FCM_SERVICE_ACCOUNT_JSON is not valid JSON',
-        });
-        return null;
-      }
-    }
-    const b64 = process.env.FCM_SERVICE_ACCOUNT_BASE64;
-    if (b64 && b64.trim().length > 0) {
-      try {
-        const decoded = Buffer.from(b64, 'base64').toString('utf8');
-        return JSON.parse(decoded) as Record<string, unknown>;
-      } catch {
-        this.logger.error('fcm.config.invalid', {
-          reason: 'FCM_SERVICE_ACCOUNT_BASE64 is not valid base64-JSON',
-        });
-        return null;
-      }
-    }
-    return null;
   }
 
   private classifyError(code?: string): FcmFailureReason {

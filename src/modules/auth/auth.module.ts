@@ -23,6 +23,7 @@ import { UsersRepository } from './repositories/users.repository';
 import { AdminAuthService } from './services/admin-auth.service';
 import { AdminInvitationService } from './services/admin-invitation.service';
 import { EmailVerificationService } from './services/email-verification.service';
+import { FirebaseAuthVerifierService } from './services/firebase-auth-verifier.service';
 import { AuthJwtService } from './services/jwt.service';
 import { PasswordService } from './services/password.service';
 import { PasswordResetService } from './services/password-reset.service';
@@ -48,6 +49,7 @@ import { SessionService } from './services/session.service';
     AuthJwtService,
     AuthRateLimiterService,
     SessionService,
+    FirebaseAuthVerifierService,
     UsersRepository,
     SessionsRepository,
     OtpAttemptsRepository,

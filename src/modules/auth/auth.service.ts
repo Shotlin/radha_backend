@@ -11,13 +11,17 @@ import { LoggerService } from '@/logging/logger.service';
 import { AuditLogService } from '@/observability/audit-log.service';
 import { SmsService } from '@/integrations/sms/sms.service';
 
+import { FirebaseExchangeDto } from './dto/firebase-exchange.dto';
+import { LegacyLinkRequestDto } from './dto/legacy-link-request.dto';
+import { LegacyLinkVerifyDto } from './dto/legacy-link-verify.dto';
+import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { RequestOtpDto } from './dto/request-otp.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
-import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { OtpAttemptsRepository } from './repositories/otp-attempts.repository';
 import { PendingInvitationsRepository } from './repositories/pending-invitations.repository';
 import { SessionsRepository } from './repositories/sessions.repository';
 import { UsersRepository } from './repositories/users.repository';
+import { FirebaseAuthVerifierService } from './services/firebase-auth-verifier.service';
 import { AuthJwtService } from './services/jwt.service';
 import { AuthRateLimiterService } from './services/rate-limiter.service';
 import { SessionService } from './services/session.service';
@@ -25,11 +29,22 @@ import { AuthResult, OtpRequestResult, UserMeResponse } from './types/auth.types
 import { maskMobile, normaliseMobile } from './utils/mobile.utils';
 import { generateOtp, hashOtp, verifyOtp } from './utils/otp.utils';
 
+type UserRowT = NonNullable<Awaited<ReturnType<UsersRepository['findByMobile']>>>;
+
 /**
  * Orchestrates OTP request, OTP verification, refresh-token rotation,
  * logout, and the BE-06 v2 ADDENDUM "pending-invitation auto-onboard"
  * path that turns a first-time login on an invited mobile into a
  * Staff/Manager/Auditor account under the inviter's tenant.
+ *
+ * Phase 13 (BE-08 v3 ADDENDUM) adds Firebase Auth (Google Sign-In) as
+ * the PRIMARY login path (`exchangeFirebaseToken`) and narrows
+ * `requestOtp`/`verifyOtp` to two residual purposes: the hardcoded demo
+ * accounts, and a "legacy account link" recovery flow
+ * (`requestLegacyLink`/`verifyLegacyLink`) so a pre-existing phone-only
+ * user can attach a Google identity to their EXISTING account instead
+ * of losing it. `requestOtp` no longer creates new accounts for unseen
+ * mobiles — see the guard at the top of that method.
  */
 @Injectable()
 export class AuthService {
@@ -67,9 +82,10 @@ export class AuthService {
     private readonly users: UsersRepository,
     private readonly otpAttempts: OtpAttemptsRepository,
     private readonly invitations: PendingInvitationsRepository,
+    private readonly firebaseAuth: FirebaseAuthVerifierService,
   ) {}
 
-  /* ─────────── Request OTP ─────────── */
+  /* ─────────── Request OTP (demo accounts + legacy-link recovery only) ─────────── */
 
   async requestOtp(dto: RequestOtpDto, ipAddress: string): Promise<OtpRequestResult> {
     const mobile = normaliseMobile(dto.mobile);
@@ -84,7 +100,23 @@ export class AuthService {
     const demoOtp = this.config.demoAccountsEnabled ? AuthService.demoOtpFor(mobile) : null;
     const isDemoUser = demoOtp !== null;
 
-    if (!isDemoUser) this.rateLimiter.checkOtpRequest(mobile, ipAddress);
+    // Phase 13: OTP no longer creates new accounts. Google Sign-In is the
+    // primary signup path now; this endpoint only serves demo accounts and
+    // pre-existing phone-only users going through the legacy-link recovery
+    // flow (which itself calls this same method). An unregistered,
+    // non-demo mobile is rejected before any otp_attempts row is created
+    // or any SMS is sent -- this must never become a way to discover
+    // whether a number is registered, so the error is deliberately generic.
+    if (!isDemoUser) {
+      const existingUser = await this.users.findByMobile(mobile);
+      if (!existingUser) {
+        throw new BusinessException(
+          ErrorCode.NOT_FOUND,
+          'Sign in with Google, or use an existing phone-linked account',
+        );
+      }
+      this.rateLimiter.checkOtpRequest(mobile, ipAddress);
+    }
 
     const otp = isDemoUser
       ? demoOtp!
@@ -142,99 +174,111 @@ export class AuthService {
     };
   }
 
-  /* ─────────── Verify OTP ─────────── */
+  /* ─────────── Verify OTP (demo accounts + pre-existing phone users only) ─────────── */
 
   async verifyOtp(dto: VerifyOtpDto, ipAddress: string, userAgent: string): Promise<AuthResult> {
     const mobile = normaliseMobile(dto.mobile);
+    await this.verifyOtpAttempt(dto.requestId, mobile, dto.otp);
 
-    const attempt = await this.otpAttempts.findByRequestId(dto.requestId);
-    if (!attempt) {
-      throw new BusinessException(ErrorCode.OTP_INVALID, 'Invalid OTP request');
-    }
-    if (attempt.mobile !== mobile) {
-      throw new BusinessException(ErrorCode.OTP_INVALID, 'Invalid OTP request');
-    }
-    if (attempt.isVerified) {
-      throw new BusinessException(ErrorCode.OTP_INVALID, 'OTP already used');
-    }
-    if (attempt.isExpired || attempt.expiresAt.getTime() < Date.now()) {
-      await this.otpAttempts.markExpired(attempt.id);
-      throw new BusinessException(ErrorCode.OTP_EXPIRED, 'OTP has expired');
-    }
-    if (attempt.attemptCount >= attempt.maxAttempts) {
-      throw new BusinessException(
-        ErrorCode.OTP_TOO_MANY_ATTEMPTS,
-        'Too many invalid attempts. Please request a new OTP.',
-      );
-    }
-
-    const ok = await verifyOtp(dto.otp, attempt.otpHash);
-    if (!ok) {
-      await this.otpAttempts.incrementAttempt(attempt.id);
-      const remaining = Math.max(0, attempt.maxAttempts - (attempt.attemptCount + 1));
-      throw new BusinessException(
-        ErrorCode.OTP_INVALID,
-        `Invalid OTP. ${remaining} attempts remaining.`,
-      );
-    }
-    await this.otpAttempts.markVerified(attempt.id);
-
-    // Resolve user — invitation > existing > new consumer.
+    // Resolve user — invitation > existing > new consumer. Reachable for
+    // a genuinely new mobile only via the invitation path (requestOtp's
+    // new guard means resolveOrCreateUser's plain-new-consumer branch is
+    // now unreachable except for demo accounts, which always pre-exist
+    // after their first login anyway).
     const result = await this.resolveOrCreateUser(mobile);
-    const user = result.user;
+    return this.completeLogin(result.user, ipAddress, userAgent, dto.deviceId, result.bypassOnboarding);
+  }
 
-    if (!user.isActive) {
-      throw new BusinessException(ErrorCode.ACCOUNT_LOCKED, 'Account is deactivated');
+  /* ─────────── Firebase Auth exchange (PRIMARY login path, Phase 13) ─────────── */
+
+  /**
+   * Exchanges a Firebase Auth ID token (minted client-side after Google
+   * Sign-In) for RADHA's own access/refresh tokens + session. Firebase is
+   * identity/session only here — the resulting user resolves into the
+   * exact same `users` row / role / tenant / session machinery as the OTP
+   * path. Resolution order: already-linked uid > email match on an
+   * existing OTP-era account (auto-link, preserves role/tenant) > brand
+   * new consumer.
+   */
+  async exchangeFirebaseToken(
+    dto: FirebaseExchangeDto,
+    ipAddress: string,
+    userAgent: string,
+  ): Promise<AuthResult> {
+    const claims = await this.firebaseAuth.verify(dto.idToken);
+
+    let user = await this.users.findByFirebaseUid(claims.firebaseUid);
+    if (!user && claims.email) {
+      const existingByEmail = await this.users.findByEmail(claims.email);
+      if (existingByEmail) {
+        user = await this.users.update(existingByEmail.id, {
+          firebaseUid: claims.firebaseUid,
+          authProvider: 'google_linked',
+        });
+      }
     }
-    if (user.lockedUntil && user.lockedUntil.getTime() > Date.now()) {
-      throw new BusinessException(ErrorCode.ACCOUNT_LOCKED, 'Account is temporarily locked');
+    if (!user) {
+      user = await this.users.create({
+        role: 'consumer',
+        firebaseUid: claims.firebaseUid,
+        email: claims.email ?? undefined,
+        authProvider: 'google',
+        isVerified: claims.emailVerified,
+        isActive: true,
+        name: '',
+      });
     }
 
-    // Mint tokens + session.
-    const sessionId = uuid();
-    const accessToken = await this.jwt.issueAccessToken({
-      sub: user.id,
-      tenantId: user.tenantId,
-      role: user.role,
-      sessionId,
-    });
-    const refreshToken = await this.jwt.issueRefreshToken({
-      sub: user.id,
-      sessionId,
-      jti: uuid(),
-    });
-    const refreshTokenHash = this.hashToken(refreshToken);
+    return this.completeLogin(user, ipAddress, userAgent, dto.deviceId, false);
+  }
 
-    await this.sessions.create(sessionId, user.id, refreshTokenHash, {
-      ipAddress,
-      userAgent,
-      deviceId: dto.deviceId,
-      platform: 'mobile',
+  /* ─────────── Legacy account link recovery (Phase 13) ─────────── */
+
+  /**
+   * Step 1 of the legacy-link recovery flow: an existing phone-only user
+   * (created before Phase 13, or one whose Google email doesn't match
+   * what's on file) proves ownership of their registered mobile via OTP
+   * before it gets linked to their now-current Google identity. Refuses
+   * unregistered mobiles -- this must never double as a disguised signup
+   * path, and must never leak whether a number is registered.
+   */
+  async requestLegacyLink(mobile: string, ipAddress: string): Promise<OtpRequestResult> {
+    const normalised = normaliseMobile(mobile);
+    const existingUser = await this.users.findByMobile(normalised);
+    if (!existingUser) {
+      throw new BusinessException(ErrorCode.NOT_FOUND, 'No account found for this phone number');
+    }
+    return this.requestOtp({ mobile: normalised, platform: 'mobile' }, ipAddress);
+  }
+
+  /**
+   * Step 2: verifies the OTP AND the already-held Firebase ID token
+   * (the caller must already be signed in with Google client-side before
+   * reaching this screen), then links `firebaseUid` onto the EXISTING
+   * mobile-matched user -- preserving role/tenant/store-access/everything
+   * -- instead of leaving them stuck on a brand-new, empty consumer
+   * account created by `exchangeFirebaseToken`.
+   */
+  async verifyLegacyLink(
+    dto: LegacyLinkVerifyDto,
+    ipAddress: string,
+    userAgent: string,
+  ): Promise<AuthResult> {
+    const mobile = normaliseMobile(dto.mobile);
+    await this.verifyOtpAttempt(dto.requestId, mobile, dto.otp);
+
+    const existingUser = await this.users.findByMobile(mobile);
+    if (!existingUser) {
+      throw new DomainNotFoundException('User', mobile);
+    }
+
+    const claims = await this.firebaseAuth.verify(dto.idToken);
+    const linked = await this.users.update(existingUser.id, {
+      firebaseUid: claims.firebaseUid,
+      authProvider: 'google_linked',
     });
 
-    await this.users.update(user.id, {
-      lastLoginAt: new Date(),
-      isVerified: true,
-      failedLoginAttempts: 0,
-    });
-
-    await this.audit.logAction({
-      action: 'LOGIN',
-      resourceType: 'User',
-      resourceId: user.id,
-      userId: user.id,
-      tenantId: user.tenantId ?? '',
-      ipAddress,
-      userAgent,
-      success: true,
-    });
-
-    return {
-      accessToken,
-      refreshToken,
-      expiresIn: this.config.jwt.accessTokenExpirySeconds,
-      user: await this.toMeResponse(user, result.bypassOnboarding),
-    };
+    return this.completeLogin(linked, ipAddress, userAgent, dto.deviceId, false);
   }
 
   /* ─────────── Refresh ─────────── */
@@ -314,9 +358,13 @@ export class AuthService {
    * with the invited role and signal `bypassOnboarding`. Otherwise
    * fall back to (a) finding an existing user or (b) creating a new
    * Consumer-default account.
+   *
+   * Phase 13: branch (b) is only reachable via a demo account today —
+   * `requestOtp`'s new guard means a genuinely unseen, non-demo mobile
+   * never reaches `verifyOtp` in the first place.
    */
   private async resolveOrCreateUser(mobile: string): Promise<{
-    user: Awaited<ReturnType<UsersRepository['findByMobile']>> & object;
+    user: UserRowT;
     bypassOnboarding: boolean;
   }> {
     const invitation = await this.invitations.findActiveByMobile(mobile);
@@ -357,10 +405,113 @@ export class AuthService {
     return { user: created, bypassOnboarding: false };
   }
 
-  private async toMeResponse(
-    user: NonNullable<Awaited<ReturnType<UsersRepository['findByMobile']>>>,
+  /**
+   * Shared OTP-attempt validation, used by both `verifyOtp` and
+   * `verifyLegacyLink` (Phase 13) so the two flows can never drift.
+   * Throws on any invalid/expired/exhausted/mismatched attempt; returns
+   * normally (no value) once the attempt is marked verified.
+   */
+  private async verifyOtpAttempt(requestId: string, mobile: string, otp: string): Promise<void> {
+    const attempt = await this.otpAttempts.findByRequestId(requestId);
+    if (!attempt) {
+      throw new BusinessException(ErrorCode.OTP_INVALID, 'Invalid OTP request');
+    }
+    if (attempt.mobile !== mobile) {
+      throw new BusinessException(ErrorCode.OTP_INVALID, 'Invalid OTP request');
+    }
+    if (attempt.isVerified) {
+      throw new BusinessException(ErrorCode.OTP_INVALID, 'OTP already used');
+    }
+    if (attempt.isExpired || attempt.expiresAt.getTime() < Date.now()) {
+      await this.otpAttempts.markExpired(attempt.id);
+      throw new BusinessException(ErrorCode.OTP_EXPIRED, 'OTP has expired');
+    }
+    if (attempt.attemptCount >= attempt.maxAttempts) {
+      throw new BusinessException(
+        ErrorCode.OTP_TOO_MANY_ATTEMPTS,
+        'Too many invalid attempts. Please request a new OTP.',
+      );
+    }
+
+    const ok = await verifyOtp(otp, attempt.otpHash);
+    if (!ok) {
+      await this.otpAttempts.incrementAttempt(attempt.id);
+      const remaining = Math.max(0, attempt.maxAttempts - (attempt.attemptCount + 1));
+      throw new BusinessException(
+        ErrorCode.OTP_INVALID,
+        `Invalid OTP. ${remaining} attempts remaining.`,
+      );
+    }
+    await this.otpAttempts.markVerified(attempt.id);
+  }
+
+  /**
+   * Shared token-issuance + session-creation tail, used by every login
+   * path (`verifyOtp`, `exchangeFirebaseToken`, `verifyLegacyLink` —
+   * Phase 13) so the three can never drift on what "being logged in"
+   * actually means.
+   */
+  private async completeLogin(
+    user: UserRowT,
+    ipAddress: string,
+    userAgent: string,
+    deviceId: string | undefined,
     bypassOnboarding: boolean,
-  ): Promise<UserMeResponse> {
+  ): Promise<AuthResult> {
+    if (!user.isActive) {
+      throw new BusinessException(ErrorCode.ACCOUNT_LOCKED, 'Account is deactivated');
+    }
+    if (user.lockedUntil && user.lockedUntil.getTime() > Date.now()) {
+      throw new BusinessException(ErrorCode.ACCOUNT_LOCKED, 'Account is temporarily locked');
+    }
+
+    const sessionId = uuid();
+    const accessToken = await this.jwt.issueAccessToken({
+      sub: user.id,
+      tenantId: user.tenantId,
+      role: user.role,
+      sessionId,
+    });
+    const refreshToken = await this.jwt.issueRefreshToken({
+      sub: user.id,
+      sessionId,
+      jti: uuid(),
+    });
+    const refreshTokenHash = this.hashToken(refreshToken);
+
+    await this.sessions.create(sessionId, user.id, refreshTokenHash, {
+      ipAddress,
+      userAgent,
+      deviceId,
+      platform: 'mobile',
+    });
+
+    await this.users.update(user.id, {
+      lastLoginAt: new Date(),
+      isVerified: true,
+      failedLoginAttempts: 0,
+    });
+
+    await this.audit.logAction({
+      action: 'LOGIN',
+      resourceType: 'User',
+      resourceId: user.id,
+      userId: user.id,
+      tenantId: user.tenantId ?? '',
+      ipAddress,
+      userAgent,
+      success: true,
+    });
+
+    return {
+      accessToken,
+      refreshToken,
+      expiresIn: this.config.jwt.accessTokenExpirySeconds,
+      user: await this.toMeResponse(user, bypassOnboarding),
+    };
+  }
+
+  private async toMeResponse(user: UserRowT, bypassOnboarding: boolean): Promise<UserMeResponse> {
     const storeIds = await this.users.findStoreIdsByUserId(user.id);
     return {
       id: user.id,

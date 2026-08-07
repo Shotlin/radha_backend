@@ -114,6 +114,24 @@ export const EnvSchema = z.object({
     .optional()
     .transform((v) => (v === '' ? undefined : v)),
 
+  // ───── Firebase Admin SDK (BE-24 FCM + Phase 13 auth) ─────────────
+  // Service-account credentials for `firebase-admin`, shared by two
+  // consumers: FcmService (push notifications, BE-24) and
+  // FirebaseAuthVerifierService (Google Sign-In token verification,
+  // Phase 13). Previously only read via raw `process.env` inside
+  // fcm.service.ts because these were never added to the typed schema —
+  // fixed here since Phase 13 needs them validated the same way every
+  // other secret is. Either form is accepted; `_BASE64` is convenient
+  // for env systems that mangle raw JSON with embedded newlines.
+  FCM_SERVICE_ACCOUNT_JSON: z
+    .string()
+    .optional()
+    .transform((v) => (v === '' ? undefined : v)),
+  FCM_SERVICE_ACCOUNT_BASE64: z
+    .string()
+    .optional()
+    .transform((v) => (v === '' ? undefined : v)),
+
   // ───── SMS / OTP (2Factor.in — BE-06) ─────────────────────────────
   SMS_PROVIDER: z.enum(['2factor', 'mock']).default('mock'),
   // 2Factor.in transactional OTP API key. Blank (or a `dev-*` placeholder)
@@ -278,7 +296,14 @@ export const ProductionEnvSchema = EnvSchema.extend({
   RAZORPAY_WEBHOOK_SECRET: z
     .string()
     .min(16, 'RAZORPAY_WEBHOOK_SECRET must be at least 16 chars in production'),
-});
+}).refine(
+  (env) => Boolean(env.FCM_SERVICE_ACCOUNT_JSON) || Boolean(env.FCM_SERVICE_ACCOUNT_BASE64),
+  {
+    message:
+      'One of FCM_SERVICE_ACCOUNT_JSON or FCM_SERVICE_ACCOUNT_BASE64 is required in production (used by both push notifications and Firebase Auth Google Sign-In)',
+    path: ['FCM_SERVICE_ACCOUNT_JSON'],
+  },
+);
 
 export type Env = z.infer<typeof EnvSchema>;
 export type ProductionEnv = z.infer<typeof ProductionEnvSchema>;

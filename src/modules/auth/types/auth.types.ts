@@ -49,7 +49,8 @@ export interface TokenPair {
 
 export interface UserMeResponse {
   id: string;
-  mobile: string;
+  /** Phase 13: null for Google-only signups that never collected a phone number. */
+  mobile: string | null;
   name: string;
   role: UserRole;
   tenantId: string | null;

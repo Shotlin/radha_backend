@@ -5,6 +5,9 @@ import { ZodValidationPipe } from '@/common/pipes/zod-validation.pipe';
 
 import { AuthService } from './auth.service';
 import { CurrentUser } from './decorators/auth.decorators';
+import { FirebaseExchangeDto, FirebaseExchangeSchema } from './dto/firebase-exchange.dto';
+import { LegacyLinkRequestDto, LegacyLinkRequestSchema } from './dto/legacy-link-request.dto';
+import { LegacyLinkVerifyDto, LegacyLinkVerifySchema } from './dto/legacy-link-verify.dto';
 import { RefreshTokenDto, RefreshTokenSchema } from './dto/refresh-token.dto';
 import { RequestOtpDto, RequestOtpSchema } from './dto/request-otp.dto';
 import { VerifyOtpDto, VerifyOtpSchema } from './dto/verify-otp.dto';
@@ -14,10 +17,17 @@ import type { UserMeResponse } from './types/auth.types';
 /**
  * BE-06 auth surface.
  *
- *   POST /api/v1/auth/otp/request   → issues an OTP via SMS, returns requestId
- *   POST /api/v1/auth/otp/verify    → verifies OTP, returns access + refresh tokens
- *   POST /api/v1/auth/token/refresh → rotates refresh token
- *   GET  /api/v1/auth/me            → current authenticated user (mobile bootstrap)
+ *   POST /api/v1/auth/firebase/exchange  → PRIMARY login (Phase 13): exchanges a
+ *                                           Firebase ID token (Google Sign-In) for
+ *                                           access + refresh tokens
+ *   POST /api/v1/auth/otp/request        → demo accounts + legacy-link recovery only
+ *   POST /api/v1/auth/otp/verify         → demo accounts + legacy-link recovery only
+ *   POST /api/v1/auth/legacy/link/request → step 1: prove ownership of a pre-existing
+ *                                            phone-only account via OTP
+ *   POST /api/v1/auth/legacy/link/verify  → step 2: link that account to the caller's
+ *                                            already-held Firebase identity
+ *   POST /api/v1/auth/token/refresh      → rotates refresh token
+ *   GET  /api/v1/auth/me                 → current authenticated user (mobile bootstrap)
  *
  * Logout endpoints are added in BE-08 once we have JWT guards in place
  * to extract the active session id from the bearer token.
@@ -25,6 +35,41 @@ import type { UserMeResponse } from './types/auth.types';
 @Controller('auth')
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
+
+  @Post('firebase/exchange')
+  @Version('1')
+  @HttpCode(200)
+  exchangeFirebase(
+    @Body(new ZodValidationPipe(FirebaseExchangeSchema)) dto: FirebaseExchangeDto,
+    @Req() req: Request,
+  ) {
+    const ip = req.ip ?? req.socket?.remoteAddress ?? 'unknown';
+    const userAgent = req.headers['user-agent'] ?? '';
+    return this.auth.exchangeFirebaseToken(dto, ip, userAgent);
+  }
+
+  @Post('legacy/link/request')
+  @Version('1')
+  @HttpCode(200)
+  requestLegacyLink(
+    @Body(new ZodValidationPipe(LegacyLinkRequestSchema)) dto: LegacyLinkRequestDto,
+    @Req() req: Request,
+  ) {
+    const ip = req.ip ?? req.socket?.remoteAddress ?? 'unknown';
+    return this.auth.requestLegacyLink(dto.mobile, ip);
+  }
+
+  @Post('legacy/link/verify')
+  @Version('1')
+  @HttpCode(200)
+  verifyLegacyLink(
+    @Body(new ZodValidationPipe(LegacyLinkVerifySchema)) dto: LegacyLinkVerifyDto,
+    @Req() req: Request,
+  ) {
+    const ip = req.ip ?? req.socket?.remoteAddress ?? 'unknown';
+    const userAgent = req.headers['user-agent'] ?? '';
+    return this.auth.verifyLegacyLink(dto, ip, userAgent);
+  }
 
   @Post('otp/request')
   @Version('1')
