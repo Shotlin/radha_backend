@@ -324,10 +324,11 @@ export class LlmService {
       '  name to a number per 100g, or empty object),',
       '  healthFlags (array of short concern strings like "high sugar",',
       '  "ultra-processed", "high sodium"),',
-      '  summary (2-3 direct sentences: what this product is, the main health concern, and how often it is reasonable to consume),',
+      '  summary (a detailed 4-6 sentence product-specific health assessment, not a slogan or two-line summary),',
+      '  bodyEffects (array of 2-5 clear sentences describing what the ingredients/nutrients may do in the body after consumption; distinguish short-term effects from long-term risk and do not diagnose),',
       '  whyItMatters (one direct sentence explaining the concern using the label evidence),',
       '  whoShouldLimit (array of concise groups who should limit or avoid it, such as children, people with diabetes, or people with caffeine sensitivity; use an empty array when not supported),',
-      '  practicalAdvice (one actionable sentence suggesting a better everyday choice or portion/frequency guidance).',
+      '  practicalAdvice (2-3 actionable sentences suggesting portion/frequency guidance and a healthier everyday alternative).',
       'Be clear and honest, not vague: say "limit" or "avoid" only when the label evidence supports it.',
       'Do not diagnose disease, claim the product causes disease, or invent product facts.',
       'Never invent values that are not supported by the transcript — use null or',
@@ -355,6 +356,7 @@ export class LlmService {
         nutritionalInfo?: unknown;
         healthFlags?: unknown;
         summary?: string | null;
+        bodyEffects?: unknown;
         whyItMatters?: string | null;
         whoShouldLimit?: unknown;
         practicalAdvice?: string | null;
@@ -371,6 +373,7 @@ export class LlmService {
         nutritionalInfo: this.numberRecord(parsed.nutritionalInfo),
         healthFlags: this.stringArray(parsed.healthFlags),
         summary: this.shortString(parsed.summary ?? undefined),
+        bodyEffects: this.stringArray(parsed.bodyEffects),
         whyItMatters: this.shortString(parsed.whyItMatters ?? undefined),
         whoShouldLimit: this.stringArray(parsed.whoShouldLimit),
         practicalAdvice: this.shortString(parsed.practicalAdvice ?? undefined),

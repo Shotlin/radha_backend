@@ -110,6 +110,8 @@ export interface LabelAnalysisResult {
    * consumer "scan the label" fallback when a barcode lookup misses.
    */
   summary?: string;
+  /** Detailed product-specific assessment suitable for display and speech. */
+  bodyEffects?: string[];
   /** Short health concern/flag chips, e.g. "high sugar", "ultra-processed". */
   healthFlags?: string[];
   /** Direct label-evidence explanation of why the flags matter. */
