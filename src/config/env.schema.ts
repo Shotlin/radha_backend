@@ -154,8 +154,11 @@ export const EnvSchema = z.object({
     .string()
     .min(32, 'JWT_REFRESH_SECRET must be at least 32 chars')
     .default('b'.repeat(32)),
-  JWT_ACCESS_EXPIRY_SECONDS: z.coerce.number().int().positive().default(1_800),
-  JWT_REFRESH_EXPIRY_SECONDS: z.coerce.number().int().positive().default(2_592_000),
+  // Access tokens are intentionally short-lived; the mobile client silently
+  // rotates them with the refresh token. The refresh session is the user's
+  // actual remembered-login window and slides forward on activity.
+  JWT_ACCESS_EXPIRY_SECONDS: z.coerce.number().int().positive().default(3_600),
+  JWT_REFRESH_EXPIRY_SECONDS: z.coerce.number().int().positive().default(604_800),
   JWT_ISSUER: z.string().default('radha-platform'),
   JWT_AUDIENCE: z.string().default('radha-clients'),
 
