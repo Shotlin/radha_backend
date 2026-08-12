@@ -65,6 +65,9 @@ export const OWNER_PERMISSIONS: ReadonlySet<Permission> = new Set<Permission>([
   'users:write',
   'users:invite',
   'products:read',
+  // Business owners can use the consumer scan/AI surfaces from the mobile
+  // app while reviewing products in their business workspace.
+  'consumer:scan',
   'products:write',
   'products:delete',
   'products:bulk-import',
