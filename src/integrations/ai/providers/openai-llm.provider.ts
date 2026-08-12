@@ -64,10 +64,16 @@ export class OpenAiLlmProvider implements ILlmProvider {
             ? { reasoning: { enabled: false } }
             : {}),
         } as unknown as Parameters<typeof client.chat.completions.create>[0];
-      const response = await this.withTimeout(
+      const response = (await this.withTimeout(
         client.chat.completions.create(request),
         timeoutMs,
-      );
+      )) as {
+        choices?: Array<{
+          message?: { content?: string | null };
+          finish_reason?: string | null;
+        }>;
+        usage?: { total_tokens?: number };
+      };
       const choice = response.choices?.[0];
       const text = choice?.message?.content ?? '';
       const tokensUsed = response.usage?.total_tokens ?? 0;
