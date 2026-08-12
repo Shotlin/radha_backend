@@ -241,7 +241,7 @@ export class LlmService {
       // Label analysis has several arrays and a nutrition object. The
       // previous provider default (512) could truncate the JSON response
       // before it reached the parser, causing the UI's unavailable state.
-      maxTokens: options.maxTokens ?? 900,
+      maxTokens: options.maxTokens ?? 1_600,
       // Structured output — the label analysis is a fixed JSON shape.
       json: true,
     });
