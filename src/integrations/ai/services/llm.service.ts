@@ -238,6 +238,10 @@ export class LlmService {
     const llm = await this.complete(prompt, {
       ...options,
       timeoutMs: options.timeoutMs ?? AI_LLM_DEFAULT_TIMEOUT_MS,
+      // Label analysis has several arrays and a nutrition object. The
+      // previous provider default (512) could truncate the JSON response
+      // before it reached the parser, causing the UI's unavailable state.
+      maxTokens: options.maxTokens ?? 900,
       // Structured output — the label analysis is a fixed JSON shape.
       json: true,
     });
