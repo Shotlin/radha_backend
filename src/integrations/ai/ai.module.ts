@@ -36,9 +36,9 @@ import {
  *       Mock                 otherwise.
  *
  *   - `LLM_PROVIDER_TOKEN` resolves to:
+ *       OpenRouter/OpenAI    if OPENROUTER_API_KEY or OPENAI_API_KEY is set,
  *       NVIDIA (DeepSeek)    if NVIDIA_API_KEY is set,
  *       Gemini               if GEMINI_API_KEY is set,
- *       OpenAI               if OPENAI_API_KEY is set,
  *       Mock                 otherwise.
  *
  *   - `OCR_PROVIDER_TOKEN` resolves to the active image provider so
@@ -69,16 +69,16 @@ const imageRecognitionProvider: Provider = {
 
 const llmProvider: Provider = {
   provide: LLM_PROVIDER_TOKEN,
-  inject: [NvidiaLlmProvider, GeminiLlmProvider, OpenAiLlmProvider, MockAiProvider],
+  inject: [OpenAiLlmProvider, NvidiaLlmProvider, GeminiLlmProvider, MockAiProvider],
   useFactory: (
+    openai: OpenAiLlmProvider,
     nvidia: NvidiaLlmProvider,
     gemini: GeminiLlmProvider,
-    openai: OpenAiLlmProvider,
     mock: MockAiProvider,
   ) => {
+    if (openai.isConfigured()) return openai;
     if (nvidia.isConfigured()) return nvidia;
     if (gemini.isConfigured()) return gemini;
-    if (openai.isConfigured()) return openai;
     return mock;
   },
 };
