@@ -54,14 +54,18 @@ export class OpenAiLlmProvider implements ILlmProvider {
 
     try {
       const { client } = await this.ensureClient();
-      const response = await this.withTimeout(
-        client.chat.completions.create({
+      const request = {
           model,
           messages: [{ role: 'user', content: prompt }],
           max_tokens: maxTokens,
           temperature,
           ...(options.json ? { response_format: { type: 'json_object' as const } } : {}),
-        }),
+          ...(process.env.OPENROUTER_API_KEY
+            ? { reasoning: { enabled: false } }
+            : {}),
+        } as unknown as Parameters<typeof client.chat.completions.create>[0];
+      const response = await this.withTimeout(
+        client.chat.completions.create(request),
         timeoutMs,
       );
       const choice = response.choices?.[0];
