@@ -112,6 +112,12 @@ export interface LabelAnalysisResult {
   summary?: string;
   /** Short health concern/flag chips, e.g. "high sugar", "ultra-processed". */
   healthFlags?: string[];
+  /** Direct label-evidence explanation of why the flags matter. */
+  whyItMatters?: string;
+  /** Groups for whom moderation is especially relevant, when supported. */
+  whoShouldLimit?: string[];
+  /** Practical portion/frequency or substitution advice. */
+  practicalAdvice?: string;
   confidence: number;
   provider: AiProvider;
   cost: number;

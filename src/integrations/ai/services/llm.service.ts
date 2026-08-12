@@ -324,7 +324,12 @@ export class LlmService {
       '  name to a number per 100g, or empty object),',
       '  healthFlags (array of short concern strings like "high sugar",',
       '  "ultra-processed", "high sodium"),',
-      '  summary (one plain, non-alarmist sentence under 200 characters).',
+      '  summary (2-3 direct sentences: what this product is, the main health concern, and how often it is reasonable to consume),',
+      '  whyItMatters (one direct sentence explaining the concern using the label evidence),',
+      '  whoShouldLimit (array of concise groups who should limit or avoid it, such as children, people with diabetes, or people with caffeine sensitivity; use an empty array when not supported),',
+      '  practicalAdvice (one actionable sentence suggesting a better everyday choice or portion/frequency guidance).',
+      'Be clear and honest, not vague: say "limit" or "avoid" only when the label evidence supports it.',
+      'Do not diagnose disease, claim the product causes disease, or invent product facts.',
       'Never invent values that are not supported by the transcript — use null or',
       'empty arrays when unknown. Do not include any text outside the JSON object.',
       '',
@@ -350,6 +355,9 @@ export class LlmService {
         nutritionalInfo?: unknown;
         healthFlags?: unknown;
         summary?: string | null;
+        whyItMatters?: string | null;
+        whoShouldLimit?: unknown;
+        practicalAdvice?: string | null;
       };
 
       const productName = this.shortString(parsed.productName ?? undefined);
@@ -363,6 +371,9 @@ export class LlmService {
         nutritionalInfo: this.numberRecord(parsed.nutritionalInfo),
         healthFlags: this.stringArray(parsed.healthFlags),
         summary: this.shortString(parsed.summary ?? undefined),
+        whyItMatters: this.shortString(parsed.whyItMatters ?? undefined),
+        whoShouldLimit: this.stringArray(parsed.whoShouldLimit),
+        practicalAdvice: this.shortString(parsed.practicalAdvice ?? undefined),
         // Confidence heuristic: a parsed name + some ingredients is a solid read.
         confidence: productName ? 0.7 : 0.35,
       };
