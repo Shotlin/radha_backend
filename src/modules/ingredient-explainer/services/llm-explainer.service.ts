@@ -47,7 +47,9 @@ export class LlmExplainerService {
    * `ingredient_explanations.generated_by` so operators can run a
    * mass regenerate by filtering on this column.
    */
-  readonly modelName = 'mock-llm-stub-v1';
+  readonly modelName = process.env.OPENROUTER_API_KEY
+    ? (process.env.OPENROUTER_MODEL ?? 'openrouter/free')
+    : 'mock-llm-stub-v1';
 
   /**
    * Generate a plain-language ingredient explanation.
@@ -59,9 +61,67 @@ export class LlmExplainerService {
    */
   async generate(input: LlmExplainGenerateInput): Promise<LlmExplainGenerateOutput> {
     const timeoutMs = input.timeoutMs ?? LLM_EXPLAINER_DEFAULT_TIMEOUT_MS;
-    // Resolve immediately — the mock has no I/O. We still race against
-    // a timeout so the contract matches the real provider exactly.
-    return this.withTimeout(this.buildMockResponse(input), timeoutMs);
+    const apiKey = process.env.OPENROUTER_API_KEY;
+    if (!apiKey) {
+      return this.withTimeout(this.buildMockResponse(input), timeoutMs);
+    }
+
+    return this.withTimeout(this.generateWithOpenRouter(input, apiKey), timeoutMs);
+  }
+
+  private async generateWithOpenRouter(
+    input: LlmExplainGenerateInput,
+    apiKey: string,
+  ): Promise<LlmExplainGenerateOutput> {
+    const baseUrl = (process.env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1').replace(/\/$/, '');
+    const model = process.env.OPENROUTER_MODEL ?? 'openrouter/free';
+    const response = await fetch(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': process.env.OPENROUTER_SITE_URL ?? 'https://radha.opslin.com',
+        'X-Title': process.env.OPENROUTER_APP_NAME ?? 'RADHA',
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0.2,
+        max_tokens: 420,
+        response_format: { type: 'json_object' },
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You explain packaged-food ingredients. Be factual, concise, non-alarmist, and never invent medical advice. Return JSON only with description, healthConsiderations, confidence.',
+          },
+          {
+            role: 'user',
+            content: `Explain the ingredient "${input.user}" in ${input.language}. Return JSON with description (one or two sentences), healthConsiderations (one short sentence or empty string), and confidence (low, medium, or high).`,
+          },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`OpenRouter returned ${response.status}`);
+    }
+
+    const payload = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+    const content = payload.choices?.[0]?.message?.content ?? '';
+    const parsed = JSON.parse(content) as Partial<LlmExplainGenerateOutput>;
+    const confidence = parsed.confidence;
+    return {
+      description: typeof parsed.description === 'string' ? parsed.description : '',
+      healthConsiderations:
+        typeof parsed.healthConsiderations === 'string' ? parsed.healthConsiderations : '',
+      confidence:
+        confidence === 'high' || confidence === 'medium' || confidence === 'low'
+          ? confidence
+          : 'low',
+      modelName: model,
+    };
   }
 
   private buildMockResponse(input: LlmExplainGenerateInput): LlmExplainGenerateOutput {

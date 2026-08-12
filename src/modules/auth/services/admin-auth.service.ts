@@ -82,8 +82,8 @@ export class AdminAuthService {
     if (!user || !user.isActive) {
       throw new BusinessException(ErrorCode.ACCOUNT_LOCKED, 'Account is deactivated');
     }
-    if (user.role !== 'admin') {
-      throw new BusinessException(ErrorCode.INSUFFICIENT_PERMISSIONS, 'Admin role required');
+    if (user.role !== 'admin' && user.role !== 'owner') {
+      throw new BusinessException(ErrorCode.INSUFFICIENT_PERMISSIONS, 'Admin or owner role required');
     }
     if (!cred.emailVerifiedAt) {
       throw new BusinessException(ErrorCode.AUTHENTICATION_REQUIRED, 'Verify your email first');

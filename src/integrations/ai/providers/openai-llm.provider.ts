@@ -35,7 +35,7 @@ export class OpenAiLlmProvider implements ILlmProvider {
 
   isConfigured(): boolean {
     if (this.config.isTest) return false;
-    return Boolean(process.env.OPENAI_API_KEY);
+    return Boolean(process.env.OPENAI_API_KEY ?? process.env.OPENROUTER_API_KEY);
   }
 
   async complete(prompt: string, options: LlmOptions = {}): Promise<LlmResult> {
@@ -48,7 +48,7 @@ export class OpenAiLlmProvider implements ILlmProvider {
     }
     const start = Date.now();
     const timeoutMs = options.timeoutMs ?? AI_LLM_DEFAULT_TIMEOUT_MS;
-    const model = process.env.OPENAI_MODEL ?? 'gpt-4o-mini';
+    const model = options.model ?? process.env.OPENAI_MODEL ?? process.env.OPENROUTER_MODEL ?? 'openrouter/free';
     const maxTokens = options.maxTokens ?? 512;
     const temperature = options.temperature ?? 0.3;
 
@@ -60,6 +60,7 @@ export class OpenAiLlmProvider implements ILlmProvider {
           messages: [{ role: 'user', content: prompt }],
           max_tokens: maxTokens,
           temperature,
+          ...(options.json ? { response_format: { type: 'json_object' as const } } : {}),
         }),
         timeoutMs,
       );
@@ -101,7 +102,8 @@ export class OpenAiLlmProvider implements ILlmProvider {
     }
     this.sdk = mod;
     this.clientInstance = new mod.OpenAI({
-      apiKey: process.env.OPENAI_API_KEY ?? '',
+      apiKey: process.env.OPENAI_API_KEY ?? process.env.OPENROUTER_API_KEY ?? '',
+      baseURL: process.env.OPENAI_BASE_URL ?? process.env.OPENROUTER_BASE_URL,
     });
     return { sdk: this.sdk, client: this.clientInstance };
   }
