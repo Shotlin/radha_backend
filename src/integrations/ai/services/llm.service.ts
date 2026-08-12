@@ -170,7 +170,7 @@ export class LlmService {
     const prompt = this.buildIngredientPrompt(cacheKey, locale);
     const llm = await this.complete(prompt, {
       ...options,
-      timeoutMs: options.timeoutMs ?? AI_LLM_DEFAULT_TIMEOUT_MS,
+      timeoutMs: options.timeoutMs ?? Math.max(AI_LLM_DEFAULT_TIMEOUT_MS, 25_000),
       // Structured output — the ingredient explanation is a fixed JSON shape.
       json: true,
     });
@@ -237,7 +237,7 @@ export class LlmService {
     const prompt = this.buildLabelPrompt(cleaned, locale);
     const llm = await this.complete(prompt, {
       ...options,
-      timeoutMs: options.timeoutMs ?? AI_LLM_DEFAULT_TIMEOUT_MS,
+      timeoutMs: options.timeoutMs ?? Math.max(AI_LLM_DEFAULT_TIMEOUT_MS, 25_000),
       // Label analysis has several arrays and a nutrition object. The
       // previous provider default (512) could truncate the JSON response
       // before it reached the parser, causing the UI's unavailable state.
