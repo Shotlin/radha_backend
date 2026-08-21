@@ -1,7 +1,12 @@
+import { createHash } from 'node:crypto';
+
 import { AuthService } from '../auth.service';
 import * as otpUtils from '../utils/otp.utils';
 import { BusinessException } from '@/common/errors/business.exception';
 import { ErrorCode } from '@/common/errors/error-codes';
+
+/** Mirrors AuthService's private hashToken() exactly — sha256 hex digest. */
+const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
 
 /**
  * Phase 13 coverage for the Firebase Auth exchange, legacy-link recovery,
@@ -304,5 +309,79 @@ describe('AuthService — requestOtp restriction (Phase 13)', () => {
 
     const result = await service.requestOtp({ mobile: '9876543210', platform: 'mobile' }, '127.0.0.1');
     expect(result.requestId).toBeDefined();
+  });
+});
+
+describe('AuthService — refreshTokens grace window (session-expiry fix)', () => {
+  const buildSession = (overrides: Record<string, unknown> = {}) => ({
+    id: 'session-1',
+    userId: 'user-1',
+    refreshTokenHash: hashToken('current-token'),
+    previousRefreshTokenHash: hashToken('previous-token'),
+    isActive: true,
+    expiresAt: new Date(Date.now() + 60_000),
+    lastUsedAt: new Date(),
+    ...overrides,
+  });
+
+  it('rotates normally when the presented token matches the current hash', async () => {
+    const { service, sessions, jwt, users } = buildService();
+    jwt.verifyRefreshToken.mockResolvedValue({ sub: 'user-1', sessionId: 'session-1' });
+    sessions.findActive.mockResolvedValue(buildSession());
+    users.findById.mockResolvedValue(baseUser({ id: 'user-1' }));
+
+    await service.refreshTokens({ refreshToken: 'current-token' });
+
+    expect(sessions.revokeAllForUser).not.toHaveBeenCalled();
+    expect(sessions.rotate).toHaveBeenCalledWith(
+      'session-1',
+      hashToken('current-token'),
+      expect.any(String),
+    );
+  });
+
+  it('tolerates a replay of the immediately-previous token within the grace window (no revoke)', async () => {
+    const { service, sessions, jwt, users } = buildService();
+    jwt.verifyRefreshToken.mockResolvedValue({ sub: 'user-1', sessionId: 'session-1' });
+    sessions.findActive.mockResolvedValue(
+      buildSession({ lastUsedAt: new Date(Date.now() - 2_000) }), // rotated 2s ago
+    );
+    users.findById.mockResolvedValue(baseUser({ id: 'user-1' }));
+
+    const result = await service.refreshTokens({ refreshToken: 'previous-token' });
+
+    expect(sessions.revokeAllForUser).not.toHaveBeenCalled();
+    expect(result.accessToken).toBeDefined();
+    // Chains off the CURRENT hash, not the stale presented one.
+    expect(sessions.rotate).toHaveBeenCalledWith(
+      'session-1',
+      hashToken('current-token'),
+      expect.any(String),
+    );
+  });
+
+  it('treats a stale token presented outside the grace window as theft', async () => {
+    const { service, sessions, jwt, users } = buildService();
+    jwt.verifyRefreshToken.mockResolvedValue({ sub: 'user-1', sessionId: 'session-1' });
+    sessions.findActive.mockResolvedValue(
+      buildSession({ lastUsedAt: new Date(Date.now() - 60_000) }), // rotated 60s ago — outside the 15s window
+    );
+
+    await expect(service.refreshTokens({ refreshToken: 'previous-token' })).rejects.toMatchObject({
+      code: ErrorCode.TOKEN_REVOKED,
+    });
+    expect(sessions.revokeAllForUser).toHaveBeenCalledWith('user-1', 'token_theft');
+    expect(users.findById).not.toHaveBeenCalled();
+  });
+
+  it('treats a token matching neither current nor previous hash as theft', async () => {
+    const { service, sessions, jwt } = buildService();
+    jwt.verifyRefreshToken.mockResolvedValue({ sub: 'user-1', sessionId: 'session-1' });
+    sessions.findActive.mockResolvedValue(buildSession());
+
+    await expect(
+      service.refreshTokens({ refreshToken: 'never-issued-token' }),
+    ).rejects.toMatchObject({ code: ErrorCode.TOKEN_REVOKED });
+    expect(sessions.revokeAllForUser).toHaveBeenCalledWith('user-1', 'token_theft');
   });
 });

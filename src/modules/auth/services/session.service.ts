@@ -47,8 +47,13 @@ export class SessionService {
 
   /** Rotates the refresh token hash and slides `expiresAt` forward by the
    * configured TTL from now — see `SessionsRepository.rotateRefreshToken`. */
-  rotate(sessionId: string, newHash: string) {
+  rotate(sessionId: string, previousHash: string, newHash: string) {
     const ttlSec = this.config.jwt.refreshTokenExpirySeconds;
-    return this.repo.rotateRefreshToken(sessionId, newHash, new Date(Date.now() + ttlSec * 1000));
+    return this.repo.rotateRefreshToken(
+      sessionId,
+      previousHash,
+      newHash,
+      new Date(Date.now() + ttlSec * 1000),
+    );
   }
 }

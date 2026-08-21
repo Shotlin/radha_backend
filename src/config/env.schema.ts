@@ -158,7 +158,7 @@ export const EnvSchema = z.object({
   // rotates them with the refresh token. The refresh session is the user's
   // actual remembered-login window and slides forward on activity.
   JWT_ACCESS_EXPIRY_SECONDS: z.coerce.number().int().positive().default(3_600),
-  JWT_REFRESH_EXPIRY_SECONDS: z.coerce.number().int().positive().default(604_800),
+  JWT_REFRESH_EXPIRY_SECONDS: z.coerce.number().int().positive().default(1_209_600),
   JWT_ISSUER: z.string().default('radha-platform'),
   JWT_AUDIENCE: z.string().default('radha-clients'),
 

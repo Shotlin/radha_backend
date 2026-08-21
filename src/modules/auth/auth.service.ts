@@ -283,6 +283,22 @@ export class AuthService {
 
   /* ─────────── Refresh ─────────── */
 
+  /**
+   * Grace window for a stale-but-recent refresh token replay. The backend
+   * rotates the refresh token on every use; presenting the token that was
+   * JUST rotated away is normally treated as theft (see below). But a
+   * harmless version of this exact symptom happens whenever two separate
+   * app processes briefly hold the same refresh token at once — e.g. an
+   * app reinstall/relaunch that overlaps with the old process, or (in
+   * principle) two devices refreshing within the same instant — and the
+   * loser of that race gets treated as an attacker even though nothing
+   * malicious happened. Real theft replay comes from a token an attacker
+   * captured and reuses later, well outside a tight window; tolerating
+   * one recent, single-generation-stale replay does not meaningfully help
+   * a real attacker (they'd still need the CURRENT token to get anywhere).
+   */
+  private static readonly REFRESH_GRACE_WINDOW_MS = 15_000;
+
   async refreshTokens(dto: RefreshTokenDto): Promise<AuthResult> {
     const payload = await this.jwt.verifyRefreshToken(dto.refreshToken);
     const session = await this.sessions.findActive(payload.sessionId);
@@ -295,14 +311,30 @@ export class AuthService {
     }
 
     const presentedHash = this.hashToken(dto.refreshToken);
-    if (session.refreshTokenHash !== presentedHash) {
-      // Token rotation mismatch ⇒ treat as theft, kill all sessions.
-      this.logger.warn('auth.token_theft_suspected', {
+    const isCurrentToken = session.refreshTokenHash === presentedHash;
+
+    if (!isCurrentToken) {
+      const withinGraceWindow =
+        session.previousRefreshTokenHash === presentedHash &&
+        session.lastUsedAt != null &&
+        Date.now() - session.lastUsedAt.getTime() < AuthService.REFRESH_GRACE_WINDOW_MS;
+
+      if (!withinGraceWindow) {
+        // Stale token, outside the grace window ⇒ treat as theft, kill all sessions.
+        this.logger.warn('auth.token_theft_suspected', {
+          userId: payload.sub,
+          sessionId: session.id,
+        });
+        await this.sessions.revokeAllForUser(payload.sub, 'token_theft');
+        throw new BusinessException(ErrorCode.TOKEN_REVOKED, 'Token has been revoked');
+      }
+      // Within grace: almost certainly a concurrent-replay race, not theft.
+      // Fall through and issue a fresh rotation exactly like a normal
+      // refresh — chained off the CURRENT hash below, not the stale one.
+      this.logger.log('auth.token_refresh_grace_replay', {
         userId: payload.sub,
         sessionId: session.id,
       });
-      await this.sessions.revokeAllForUser(payload.sub, 'token_theft');
-      throw new BusinessException(ErrorCode.TOKEN_REVOKED, 'Token has been revoked');
     }
 
     const user = await this.users.findById(payload.sub);
@@ -319,7 +351,7 @@ export class AuthService {
       sessionId: session.id,
       jti: uuid(),
     });
-    await this.sessions.rotate(session.id, this.hashToken(newRefresh));
+    await this.sessions.rotate(session.id, session.refreshTokenHash, this.hashToken(newRefresh));
 
     return {
       accessToken: newAccess,

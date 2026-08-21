@@ -134,6 +134,14 @@ export const userSessions = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     refreshTokenHash: varchar('refresh_token_hash', { length: 255 }).notNull(),
+    /**
+     * Phase 13 follow-up (session grace window) — the refresh-token hash
+     * that was current immediately before the last rotation. Lets
+     * `AuthService.refreshTokens()` tell a harmless concurrent-replay race
+     * (two app processes both holding the same about-to-be-rotated token)
+     * apart from genuine token theft, within a short time window.
+     */
+    previousRefreshTokenHash: varchar('previous_refresh_token_hash', { length: 255 }),
     ipAddress: varchar('ip_address', { length: 64 }),
     userAgent: varchar('user_agent', { length: 500 }),
     deviceId: varchar('device_id', { length: 255 }),

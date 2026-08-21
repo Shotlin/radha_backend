@@ -54,14 +54,27 @@ export class SessionsRepository extends BaseRepository<
   /**
    * `expiresAt` is pushed forward on every rotation (sliding window) rather
    * than staying pinned to the original login. Without this, a user who
-   * opens the app daily would still be hard-logged-out 30 days after their
+   * opens the app daily would still be hard-logged-out 14 days after their
    * very first login — the opposite of "keep me signed in while I'm an
    * active user, only expire after real inactivity."
+   *
+   * `previousHash` records what the hash was just before this rotation —
+   * see the column's own doc comment in `db/schema/users.ts` for why.
    */
-  async rotateRefreshToken(sessionId: string, newHash: string, expiresAt: Date): Promise<void> {
+  async rotateRefreshToken(
+    sessionId: string,
+    previousHash: string,
+    newHash: string,
+    expiresAt: Date,
+  ): Promise<void> {
     await this.db
       .update(userSessions)
-      .set({ refreshTokenHash: newHash, lastUsedAt: new Date(), expiresAt })
+      .set({
+        previousRefreshTokenHash: previousHash,
+        refreshTokenHash: newHash,
+        lastUsedAt: new Date(),
+        expiresAt,
+      })
       .where(eq(userSessions.id, sessionId));
   }
 }
