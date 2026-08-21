@@ -331,7 +331,7 @@ export class AuthService {
       // Within grace: almost certainly a concurrent-replay race, not theft.
       // Fall through and issue a fresh rotation exactly like a normal
       // refresh — chained off the CURRENT hash below, not the stale one.
-      this.logger.log('auth.token_refresh_grace_replay', {
+      this.logger.info('auth.token_refresh_grace_replay', {
         userId: payload.sub,
         sessionId: session.id,
       });
