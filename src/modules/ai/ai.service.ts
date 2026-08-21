@@ -4,6 +4,7 @@ import { AiOrchestratorService } from '@/integrations/ai/services/ai-orchestrato
 import { UsageTrackerService } from '@/integrations/ai/services/usage-tracker.service';
 import type {
   AiOperation,
+  DatePhotoAnalysisResult,
   DateRange,
   ImageFallbackResult,
   IngredientExplanationResult,
@@ -50,6 +51,10 @@ export class AiService {
 
   analyzeLabelPhoto(mediaId: string, locale = 'en'): Promise<LabelAnalysisResult> {
     return this.orchestrator.analyzeLabelPhoto(mediaId, { locale });
+  }
+
+  analyzeDatePhoto(mediaId: string): Promise<DatePhotoAnalysisResult> {
+    return this.orchestrator.analyzeDatePhoto(mediaId);
   }
 
   imageFallbackScan(mediaId: string): Promise<ImageFallbackResult> {

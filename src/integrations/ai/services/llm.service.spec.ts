@@ -1,6 +1,8 @@
 import type { AiCircuitBreakerService } from './ai-circuit-breaker.service';
 import { LlmService } from './llm.service';
+import type { GeminiLlmProvider } from '../providers/gemini-llm.provider';
 import type { MockAiProvider } from '../providers/mock-ai.provider';
+import type { OpenAiLlmProvider } from '../providers/openai-llm.provider';
 import type { AiExplanationCacheRepository } from '../repositories/ai-explanation-cache.repository';
 import type { ILlmProvider, LlmResult } from '../types/ai.types';
 
@@ -33,7 +35,17 @@ describe('LlmService.analyzeLabelText — tolerant JSON extraction', () => {
     } as unknown as AiCircuitBreakerService;
     const cacheRepo = {} as unknown as AiExplanationCacheRepository;
     const logger = { warn: jest.fn(), info: jest.fn(), error: jest.fn() };
-    return new LlmService(provider, mock, breaker, cacheRepo, logger as never);
+    const geminiProvider = { isConfigured: () => false } as unknown as GeminiLlmProvider;
+    const openAiProvider = { isConfigured: () => false } as unknown as OpenAiLlmProvider;
+    return new LlmService(
+      provider,
+      mock,
+      breaker,
+      cacheRepo,
+      logger as never,
+      geminiProvider,
+      openAiProvider,
+    );
   }
 
   const PAYLOAD =

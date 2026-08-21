@@ -79,6 +79,19 @@ export const LabelPhotoAnalyzeRequestSchema = z
   .strict();
 export type LabelPhotoAnalyzeRequestDto = z.infer<typeof LabelPhotoAnalyzeRequestSchema>;
 
+/**
+ * Photo → expiry/mfg date + batch number only — the escalation path when
+ * on-device OCR can't get a reliable read (e.g. dates debossed into
+ * curved, translucent plastic). Same `mediaId`-references-an-uploaded-
+ * photo shape as `LabelPhotoAnalyzeRequestSchema`.
+ */
+export const DatePhotoAnalyzeRequestSchema = z
+  .object({
+    mediaId: UUID,
+  })
+  .strict();
+export type DatePhotoAnalyzeRequestDto = z.infer<typeof DatePhotoAnalyzeRequestSchema>;
+
 /* ─────────────────── Report summary ─────────────────── */
 
 export const ReportSummaryRequestSchema = z

@@ -11,8 +11,10 @@ import { AiCircuitBreakerService } from './ai-circuit-breaker.service';
 import { AiExplanationCacheRepository } from '../repositories/ai-explanation-cache.repository';
 import { GeminiLlmProvider } from '../providers/gemini-llm.provider';
 import { MockAiProvider } from '../providers/mock-ai.provider';
+import { OpenAiLlmProvider } from '../providers/openai-llm.provider';
 import { NutritionPanelSchema } from '@/modules/barcode-learning/dto/nutrition-panel.dto';
 import {
+  DatePhotoAnalysisResult,
   ILlmProvider,
   IngredientExplanationResult,
   LabelAnalysisResult,
@@ -54,6 +56,11 @@ export class LlmService {
     // analyzeLabelPhoto needs vision specifically, so it must always talk
     // to Gemini regardless of which provider the generic cascade picked.
     private readonly geminiProvider: GeminiLlmProvider,
+    // Same reasoning as geminiProvider above: analyzeDatePhoto always
+    // wants the OpenRouter/OpenAI-configured model specifically (the
+    // operator picks it via OPENROUTER_MODEL), not whatever the generic
+    // cascade happens to resolve to.
+    private readonly openAiProvider: OpenAiLlmProvider,
   ) {}
 
   /**
@@ -311,6 +318,133 @@ export class LlmService {
     }
   }
 
+  /**
+   * Photo → {expiryDate, mfgDate, batchNumber} only — the fallback for
+   * labels where on-device OCR (mobile ML Kit, streamed low-res video
+   * frames) can't get a reliable read at all. The clearest real case:
+   * dates debossed/embossed directly into curved, translucent plastic
+   * (no ink, near-zero contrast) — ML Kit produced near-random garbage
+   * across ~20 consecutive frames on a real device (I2217, 2026-08-22)
+   * trying to read exactly this. A single well-lit still photo sent to a
+   * vision-capable LLM reasons about the image semantically rather than
+   * doing raw per-pixel pattern matching, which is why this succeeds
+   * where streamed local OCR does not.
+   *
+   * Deliberately talks to `openAiProvider` directly (see constructor
+   * comment) and asks for ONLY these three fields, not a full label
+   * parse — smaller prompt, smaller response, lower cost, and a tighter
+   * task the model is less likely to hallucinate on.
+   */
+  async analyzeDatePhoto(
+    imageBuffer: Buffer,
+    mimeType: string,
+    options: LlmOptions = {},
+  ): Promise<DatePhotoAnalysisResult> {
+    if (!this.openAiProvider.isConfigured() || !this.breaker.isAllowed('openai')) {
+      return {
+        confidence: 0,
+        provider: 'mock',
+        cost: 0,
+        durationMs: 0,
+        warnings: ['Vision date extraction unavailable — falling back to on-device scan'],
+      };
+    }
+
+    const prompt = this.buildDatePhotoPrompt();
+    try {
+      const llm = await this.openAiProvider.completeVision(
+        { data: imageBuffer, mimeType },
+        prompt,
+        {
+          ...options,
+          timeoutMs: options.timeoutMs ?? AI_LLM_DEFAULT_TIMEOUT_MS,
+          json: true,
+        },
+      );
+      this.breaker.recordSuccess('openai');
+      return this.parseDatePhotoResponse(llm);
+    } catch (err) {
+      this.breaker.recordFailure('openai');
+      this.logger.warn('ai.llm.date_photo_fallback_to_mock', {
+        provider: 'openai',
+        error: { name: (err as Error).name, message: (err as Error).message },
+      });
+      return {
+        confidence: 0,
+        provider: 'mock',
+        cost: 0,
+        durationMs: 0,
+        warnings: ['Photo date extraction failed — falling back to on-device scan'],
+      };
+    }
+  }
+
+  private buildDatePhotoPrompt(): string {
+    return [
+      'You are reading the expiry/manufacturing date printed, embossed, or',
+      'debossed on a packaged grocery product. The photo may show low',
+      'contrast (text embossed into curved, translucent plastic with no',
+      'ink), glare, or a curved surface — read carefully.',
+      'Return STRICT JSON with these keys:',
+      '  expiryDate (string "YYYY-MM-DD" or null),',
+      '  mfgDate (string "YYYY-MM-DD" or null),',
+      '  batchNumber (string or null, the batch/lot code near the dates).',
+      'Indian packs often print DD/MM/YY — 27 means 2027, not 1927 or year 27.',
+      'If you see two bare (unlabeled) dates with no EXP/MFG/BB wording, the',
+      'earlier one is mfgDate and the later one is expiryDate.',
+      'Never invent a value that is not actually visible in the photo — use',
+      'null for any field you cannot read, rather than guessing. Do not',
+      'include any text outside the JSON object.',
+    ].join('\n');
+  }
+
+  /** YYYY-MM-DD, year 2000–2100 — rejects hallucinated/garbled dates like "0112-01-31". */
+  private static readonly ISO_DATE_RE = /^(20\d{2}|21\d{2})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
+
+  private parseDatePhotoResponse(llm: LlmResult): DatePhotoAnalysisResult {
+    const base: Pick<DatePhotoAnalysisResult, 'provider' | 'cost' | 'durationMs'> = {
+      provider: llm.provider,
+      cost: llm.cost,
+      durationMs: llm.durationMs,
+    };
+    const validDate = (v: unknown): string | undefined =>
+      typeof v === 'string' && LlmService.ISO_DATE_RE.test(v) && !Number.isNaN(Date.parse(v))
+        ? v
+        : undefined;
+
+    try {
+      const cleaned = this.extractJsonCandidate(llm.text);
+      const parsed = JSON.parse(cleaned) as {
+        expiryDate?: string | null;
+        mfgDate?: string | null;
+        batchNumber?: string | null;
+      };
+
+      const expiryDate = validDate(parsed.expiryDate ?? undefined);
+      const mfgDate = validDate(parsed.mfgDate ?? undefined);
+      const result: DatePhotoAnalysisResult = {
+        ...base,
+        expiryDate,
+        mfgDate,
+        batchNumber: this.shortString(parsed.batchNumber ?? undefined),
+        // A read that yields a valid expiry date is the useful case this
+        // path exists for; mfg/batch alone without expiry is weaker.
+        confidence: expiryDate ? 0.75 : 0.2,
+      };
+      if (llm.truncated) {
+        result.warnings = ['AI service degraded — result may be incomplete'];
+        result.confidence = Math.min(result.confidence, 0.3);
+      }
+      return result;
+    } catch {
+      return {
+        ...base,
+        confidence: 0,
+        warnings: ['Could not parse date photo analysis — try a clearer photo'],
+      };
+    }
+  }
+
   private buildLabelPrompt(transcript: string, locale: string): string {
     return [
       'You are a food-label analyst. You are given the raw OCR transcript of a',
@@ -517,9 +651,7 @@ export class LlmService {
     // Partial validity: drop only the offending field(s), keep the rest —
     // safeParse's error tells us exactly which keys failed.
     const badKeys = new Set(parsed.error.issues.map((issue) => issue.path[0]));
-    const filtered = Object.fromEntries(
-      Object.entries(candidate).filter(([k]) => !badKeys.has(k)),
-    );
+    const filtered = Object.fromEntries(Object.entries(candidate).filter(([k]) => !badKeys.has(k)));
     if (Object.keys(filtered).length === 0) return undefined;
     const retry = NutritionPanelSchema.safeParse(filtered);
     return retry.success ? retry.data : undefined;

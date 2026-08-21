@@ -25,6 +25,8 @@ import { TenantScopeGuard } from '@/modules/auth/guards/tenant-scope.guard';
 
 import { AiService } from './ai.service';
 import {
+  DatePhotoAnalyzeRequestDto,
+  DatePhotoAnalyzeRequestSchema,
   ImageFallbackRequestDto,
   ImageFallbackRequestSchema,
   IngredientExplanationQueryDto,
@@ -54,6 +56,7 @@ import {
  *   POST /api/v1/ai/ocr/text            Generic OCR
  *   POST /api/v1/ai/label/analyze       Label analysis (paid)
  *   POST /api/v1/ai/label/analyze-photo Label analysis from a photo, vision-native
+ *   POST /api/v1/ai/date/analyze-photo  Expiry/mfg date + batch from a photo (date wizard only)
  *   POST /api/v1/ai/image-fallback      Req 38 backing endpoint
  *   POST /api/v1/ai/report/summary      LLM report summary
  *   GET  /api/v1/ai/ingredients/:slug/explanation   Req 45 backing endpoint
@@ -181,6 +184,25 @@ export class AiController {
     @Body(new ZodValidationPipe(LabelPhotoAnalyzeRequestSchema)) dto: LabelPhotoAnalyzeRequestDto,
   ): Promise<unknown> {
     return this.ai.analyzeLabelPhoto(dto.mediaId, dto.locale);
+  }
+
+  /**
+   * Photo → expiry/mfg date + batch number ONLY — the escalation path for
+   * the expiry-record wizard's date scanners specifically (not the full
+   * label/nutrition photo flow above, and not the barcode or bulk-audit
+   * scanners, which stay on-device only). `mediaId` references a photo
+   * already uploaded via the standard presigned-URL flow.
+   */
+  @Post('date/analyze-photo')
+  @Version('1')
+  @HttpCode(200)
+  @Roles('owner', 'manager', 'staff', 'admin', 'consumer')
+  @RequirePermissions('consumer:scan')
+  @RequireTenant()
+  analyzeDatePhoto(
+    @Body(new ZodValidationPipe(DatePhotoAnalyzeRequestSchema)) dto: DatePhotoAnalyzeRequestDto,
+  ): Promise<unknown> {
+    return this.ai.analyzeDatePhoto(dto.mediaId);
   }
 
   /* ─────────────────── LLM ─────────────────── */

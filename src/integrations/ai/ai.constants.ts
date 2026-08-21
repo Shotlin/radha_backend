@@ -50,6 +50,10 @@ export const AI_OPERATION_UNIT_COST: Record<AiOperation, number> = {
   // run on Gemini's FREE tier (see AI_DEFAULT_LIMITS below), so this cost
   // figure is for future paid-tier reference only, not a live spend today.
   'label-photo-analysis': 0.003,
+  // gpt-4o-mini via OpenRouter: ~1700 input tokens (image + short prompt)
+  // + ~100 output tokens (a 3-field JSON object) at $0.15/$0.60 per M
+  // tokens ≈ $0.0003/call. Rounded up for headroom.
+  'date-photo-analysis': 0.0005,
   'image-fallback': 0.0015,
   'report-summary': 0.005,
   'product-enrichment': 0.003,
@@ -79,6 +83,11 @@ export const AI_DEFAULT_LIMITS: Record<AiOperation, OperationLimits> = {
   // confirming actual multi-tenant concurrent usage, and/or upgrading to a
   // paid Gemini tier (trivially cheap — see AI_OPERATION_UNIT_COST above).
   'label-photo-analysis': { monthly: 300, daily: 50 },
+  // Deliberately generous relative to label-photo-analysis — this is a
+  // per-scan fallback for a routine, frequent action (adding an expiry
+  // record), not an occasional product-onboarding step, and the per-call
+  // cost is roughly 1/6th of label-photo-analysis's.
+  'date-photo-analysis': { monthly: 2_000, daily: 200 },
   'image-fallback': { monthly: 200, daily: 30 },
   'report-summary': { monthly: 100, daily: 20 },
   'product-enrichment': { monthly: 500, daily: 50 },

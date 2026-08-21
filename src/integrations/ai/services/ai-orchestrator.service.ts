@@ -25,6 +25,7 @@ import { UsageTrackerService } from './usage-tracker.service';
 import {
   AiOperation,
   AiProvider,
+  DatePhotoAnalysisResult,
   DateRange,
   IAiOrchestratorService,
   IImageRecognitionProvider,
@@ -224,6 +225,56 @@ export class AiOrchestratorService implements IAiOrchestratorService {
         warnings: [(err as Error).message],
       };
       await this.persistAndTrackLabelPhoto(tenantId, fallback, mediaId);
+      throw err instanceof BusinessException
+        ? err
+        : new BusinessException(ErrorCode.AI_SERVICE_ERROR, (err as Error).message);
+    }
+  }
+
+  /**
+   * Photo → {expiryDate, mfgDate, batchNumber} — the escalation path for
+   * labels on-device OCR can't read at all (see `LlmService.analyzeDatePhoto`
+   * for the concrete real-device failure this exists to fix). Mirrors
+   * `analyzeLabelPhoto`'s quota/breaker/audit shape under its own
+   * `'date-photo-analysis'` quota bucket — a frequent, routine action
+   * (adding an expiry record) shouldn't compete with the much rarer
+   * product-onboarding photo-analysis quota.
+   */
+  async analyzeDatePhoto(
+    mediaId: string,
+    options: LlmOptions = {},
+  ): Promise<DatePhotoAnalysisResult> {
+    const tenantId = this.tenantId();
+    await this.assertLimit(tenantId, 'date-photo-analysis');
+
+    const { buffer, contentType } = await this.fetchMediaWithType(mediaId);
+
+    try {
+      const result = await this.llmService.analyzeDatePhoto(buffer, contentType, options);
+      await this.persistAndTrackDatePhoto(tenantId, result, mediaId);
+      await this.audit.logAction({
+        action: 'CREATE',
+        resourceType: 'AiExtraction',
+        resourceId: mediaId,
+        userId: this.contextService.getUserId() ?? 'system',
+        tenantId,
+        success: Boolean(result.expiryDate),
+        metadata: {
+          operation: 'date-photo-analysis',
+          provider: result.provider,
+          confidence: result.confidence,
+        },
+      });
+      return result;
+    } catch (err) {
+      const fallback: DatePhotoAnalysisResult = {
+        confidence: 0,
+        provider: 'mock',
+        cost: 0,
+        durationMs: 0,
+        warnings: [(err as Error).message],
+      };
+      await this.persistAndTrackDatePhoto(tenantId, fallback, mediaId);
       throw err instanceof BusinessException
         ? err
         : new BusinessException(ErrorCode.AI_SERVICE_ERROR, (err as Error).message);
@@ -632,6 +683,46 @@ export class AiOrchestratorService implements IAiOrchestratorService {
         nutritionPanel: result.nutritionPanel,
         healthFlags: result.healthFlags,
         summary: result.summary,
+      },
+      confidence: String(result.confidence),
+      durationMs: result.durationMs,
+      cost: String(result.cost),
+      userId: this.contextService.getUserId() ?? null,
+      requestId: this.contextService.getRequestId(),
+      metadata: result.warnings && result.warnings.length > 0 ? { warnings: result.warnings } : {},
+    });
+  }
+
+  private async persistAndTrackDatePhoto(
+    tenantId: string,
+    result: DatePhotoAnalysisResult,
+    mediaId: string,
+  ): Promise<void> {
+    await this.usageTracker.trackUsage({
+      tenantId,
+      operation: 'date-photo-analysis',
+      provider: result.provider,
+      cost: result.cost,
+      durationMs: result.durationMs,
+      success: !!result.expiryDate,
+      resourceId: mediaId,
+      userId: this.contextService.getUserId(),
+    });
+    await this.extractionsRepo.recordSafely({
+      tenantId,
+      operation: 'date-photo-analysis',
+      provider: result.provider,
+      sourceType: 'media',
+      sourceId: mediaId,
+      success: result.expiryDate ? 'true' : 'false',
+      extractedText: truncateForStorage(
+        [result.expiryDate, result.mfgDate, result.batchNumber].filter(Boolean).join('\n'),
+        AI_EXTRACTED_TEXT_MAX,
+      ),
+      extractedData: {
+        expiryDate: result.expiryDate,
+        mfgDate: result.mfgDate,
+        batchNumber: result.batchNumber,
       },
       confidence: String(result.confidence),
       durationMs: result.durationMs,

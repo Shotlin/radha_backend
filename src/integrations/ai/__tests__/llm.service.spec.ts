@@ -1,6 +1,8 @@
 import { LoggerService } from '@/logging/logger.service';
 
+import { GeminiLlmProvider } from '../providers/gemini-llm.provider';
 import { MockAiProvider } from '../providers/mock-ai.provider';
+import { OpenAiLlmProvider } from '../providers/openai-llm.provider';
 import { AiExplanationCacheRepository } from '../repositories/ai-explanation-cache.repository';
 import { AiCircuitBreakerService } from '../services/ai-circuit-breaker.service';
 import { LlmService } from '../services/llm.service';
@@ -15,6 +17,13 @@ const buildLogger = (): LoggerService =>
   }) as unknown as LoggerService;
 
 const buildBreaker = () => new AiCircuitBreakerService(buildLogger());
+
+// These tests exercise LlmService.complete()/analyzeLabelText()/
+// explainIngredient(), never analyzeLabelPhoto()/analyzeDatePhoto() — the
+// two vision-specific providers just need to satisfy the constructor
+// signature, unconfigured is fine.
+const buildGeminiProvider = () => ({ isConfigured: () => false }) as unknown as GeminiLlmProvider;
+const buildOpenAiProvider = () => ({ isConfigured: () => false }) as unknown as OpenAiLlmProvider;
 
 const successProvider = (): ILlmProvider => ({
   name: 'openai',
@@ -62,6 +71,8 @@ describe('LlmService.complete', () => {
       buildBreaker(),
       buildCacheRepo(),
       buildLogger(),
+      buildGeminiProvider(),
+      buildOpenAiProvider(),
     );
     const result = await svc.complete('hello');
     expect(result.provider).toBe('openai');
@@ -76,6 +87,8 @@ describe('LlmService.complete', () => {
       buildBreaker(),
       buildCacheRepo(),
       buildLogger(),
+      buildGeminiProvider(),
+      buildOpenAiProvider(),
     );
     const result = await svc.complete('hello');
     expect(result.provider).toBe('mock');
@@ -91,6 +104,8 @@ describe('LlmService.complete', () => {
       breaker,
       buildCacheRepo(),
       buildLogger(),
+      buildGeminiProvider(),
+      buildOpenAiProvider(),
     );
     const result = await svc.complete('hello');
     expect(result.provider).toBe('mock');
@@ -110,6 +125,8 @@ describe('LlmService.complete', () => {
       breaker,
       buildCacheRepo(),
       buildLogger(),
+      buildGeminiProvider(),
+      buildOpenAiProvider(),
     );
     const result = await svc.complete('hello');
     expect(result.provider).toBe('mock');
@@ -125,6 +142,8 @@ describe('LlmService.buildTemplateSummary', () => {
       buildBreaker(),
       buildCacheRepo(),
       buildLogger(),
+      buildGeminiProvider(),
+      buildOpenAiProvider(),
     );
     expect(svc.buildTemplateSummary({})).toContain('No data');
   });
@@ -136,6 +155,8 @@ describe('LlmService.buildTemplateSummary', () => {
       buildBreaker(),
       buildCacheRepo(),
       buildLogger(),
+      buildGeminiProvider(),
+      buildOpenAiProvider(),
     );
     const out = svc.buildTemplateSummary({
       reportType: 'audit',
@@ -153,6 +174,8 @@ describe('LlmService.buildTemplateSummary', () => {
       buildBreaker(),
       buildCacheRepo(),
       buildLogger(),
+      buildGeminiProvider(),
+      buildOpenAiProvider(),
     );
     expect(
       svc.buildTemplateSummary({
@@ -171,6 +194,8 @@ describe('LlmService.generateSummary', () => {
       buildBreaker(),
       buildCacheRepo(),
       buildLogger(),
+      buildGeminiProvider(),
+      buildOpenAiProvider(),
     );
     const result = await svc.generateSummary({
       reportType: 'audit',
@@ -188,6 +213,8 @@ describe('LlmService.generateSummary', () => {
       buildBreaker(),
       buildCacheRepo(),
       buildLogger(),
+      buildGeminiProvider(),
+      buildOpenAiProvider(),
     );
     const result = await svc.generateSummary({ summary: { totalScans: 5 } });
     expect(result.provider).toBe('openai');
@@ -219,6 +246,8 @@ describe('LlmService.explainIngredient (Req 45)', () => {
       buildBreaker(),
       buildCacheRepo(cachedRow),
       buildLogger(),
+      buildGeminiProvider(),
+      buildOpenAiProvider(),
     );
     const out = await svc.explainIngredient('SUGAR');
     expect(out.cached).toBe(true);
@@ -236,6 +265,8 @@ describe('LlmService.explainIngredient (Req 45)', () => {
       buildBreaker(),
       cacheRepo,
       buildLogger(),
+      buildGeminiProvider(),
+      buildOpenAiProvider(),
     );
     const out = await svc.explainIngredient('sugar');
     expect(out.cached).toBe(false);
@@ -248,15 +279,13 @@ describe('LlmService.explainIngredient (Req 45)', () => {
     const broken: ILlmProvider = {
       name: 'openai',
       isConfigured: () => true,
-      complete: jest.fn(
-        async (): Promise<LlmResult> => ({
-          text: 'definitely not json',
-          tokensUsed: 5,
-          cost: 0.001,
-          provider: 'openai',
-          durationMs: 10,
-        }),
-      ),
+      complete: jest.fn(async (): Promise<LlmResult> => ({
+        text: 'definitely not json',
+        tokensUsed: 5,
+        cost: 0.001,
+        provider: 'openai',
+        durationMs: 10,
+      })),
     };
     const svc = new LlmService(
       broken,
@@ -264,6 +293,8 @@ describe('LlmService.explainIngredient (Req 45)', () => {
       buildBreaker(),
       buildCacheRepo(),
       buildLogger(),
+      buildGeminiProvider(),
+      buildOpenAiProvider(),
     );
     const out = await svc.explainIngredient('palm-oil');
     // Fallback summary uses title-cased slug and an "unavailable" line.
@@ -275,15 +306,13 @@ describe('LlmService.explainIngredient (Req 45)', () => {
     const fenced: ILlmProvider = {
       name: 'openai',
       isConfigured: () => true,
-      complete: jest.fn(
-        async (): Promise<LlmResult> => ({
-          text: '```json\n{"title":"X","summary":"y","whatItIs":"z","healthImpact":"q","commonUses":["a"]}\n```',
-          tokensUsed: 5,
-          cost: 0.001,
-          provider: 'openai',
-          durationMs: 10,
-        }),
-      ),
+      complete: jest.fn(async (): Promise<LlmResult> => ({
+        text: '```json\n{"title":"X","summary":"y","whatItIs":"z","healthImpact":"q","commonUses":["a"]}\n```',
+        tokensUsed: 5,
+        cost: 0.001,
+        provider: 'openai',
+        durationMs: 10,
+      })),
     };
     const svc = new LlmService(
       fenced,
@@ -291,6 +320,8 @@ describe('LlmService.explainIngredient (Req 45)', () => {
       buildBreaker(),
       buildCacheRepo(),
       buildLogger(),
+      buildGeminiProvider(),
+      buildOpenAiProvider(),
     );
     const out = await svc.explainIngredient('x');
     expect(out.title).toBe('X');

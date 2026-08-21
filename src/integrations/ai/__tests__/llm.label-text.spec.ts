@@ -1,6 +1,8 @@
 import { LoggerService } from '@/logging/logger.service';
 
+import { GeminiLlmProvider } from '../providers/gemini-llm.provider';
 import { MockAiProvider } from '../providers/mock-ai.provider';
+import { OpenAiLlmProvider } from '../providers/openai-llm.provider';
 import { AiExplanationCacheRepository } from '../repositories/ai-explanation-cache.repository';
 import { AiCircuitBreakerService } from '../services/ai-circuit-breaker.service';
 import { LlmService } from '../services/llm.service';
@@ -35,8 +37,22 @@ const providerReturning = (text: string): ILlmProvider => ({
   })),
 });
 
+// This suite exercises analyzeLabelText() only — the two vision-specific
+// providers just need to satisfy the constructor signature, unconfigured
+// is fine.
+const buildGeminiProvider = () => ({ isConfigured: () => false }) as unknown as GeminiLlmProvider;
+const buildOpenAiProvider = () => ({ isConfigured: () => false }) as unknown as OpenAiLlmProvider;
+
 const buildService = (provider: ILlmProvider): LlmService =>
-  new LlmService(provider, new MockAiProvider(), buildBreaker(), buildCacheRepo(), buildLogger());
+  new LlmService(
+    provider,
+    new MockAiProvider(),
+    buildBreaker(),
+    buildCacheRepo(),
+    buildLogger(),
+    buildGeminiProvider(),
+    buildOpenAiProvider(),
+  );
 
 describe('LlmService.analyzeLabelText', () => {
   it('parses a well-formed label JSON response into a structured result', async () => {

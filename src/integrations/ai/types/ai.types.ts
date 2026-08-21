@@ -25,6 +25,7 @@ export type AiOperation =
   | 'ocr-text'
   | 'label-analysis'
   | 'label-photo-analysis'
+  | 'date-photo-analysis'
   | 'image-fallback'
   | 'report-summary'
   | 'product-enrichment'
@@ -120,6 +121,28 @@ export interface LabelAnalysisResult {
   whoShouldLimit?: string[];
   /** Practical portion/frequency or substitution advice. */
   practicalAdvice?: string;
+  confidence: number;
+  provider: AiProvider;
+  cost: number;
+  durationMs: number;
+  warnings?: string[];
+}
+
+/**
+ * Result of a direct photo→date extraction call (`LlmService.analyzeDatePhoto`).
+ * Deliberately its own narrow type rather than folded into
+ * `LabelAnalysisResult` — this path exists specifically for labels where
+ * on-device OCR (mobile ML Kit, see `label_field_extractor.dart`) can't get
+ * a reliable read at all (e.g. debossed text on curved, translucent
+ * plastic), so it only ever asks a vision model for the three date-wizard
+ * fields, not a full nutrition-panel parse — smaller prompt, smaller
+ * response, lower cost per call.
+ */
+export interface DatePhotoAnalysisResult {
+  /** ISO 8601 date (YYYY-MM-DD), or undefined if not legible in the photo. */
+  expiryDate?: string;
+  mfgDate?: string;
+  batchNumber?: string;
   confidence: number;
   provider: AiProvider;
   cost: number;
@@ -295,6 +318,7 @@ export interface IAiOrchestratorService {
   analyzeProductLabel(mediaId: string): Promise<LabelAnalysisResult>;
   analyzeLabelText(transcript: string, options?: LlmOptions): Promise<LabelAnalysisResult>;
   analyzeLabelPhoto(mediaId: string, options?: LlmOptions): Promise<LabelAnalysisResult>;
+  analyzeDatePhoto(mediaId: string, options?: LlmOptions): Promise<DatePhotoAnalysisResult>;
   imageFallbackScan(mediaId: string): Promise<ImageFallbackResult>;
   generateReportSummary(reportData: unknown, options?: LlmOptions): Promise<LlmResult>;
   explainIngredient(slug: string, options?: LlmOptions): Promise<IngredientExplanationResult>;

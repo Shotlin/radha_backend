@@ -48,22 +48,24 @@ export class OpenAiLlmProvider implements ILlmProvider {
     }
     const start = Date.now();
     const timeoutMs = options.timeoutMs ?? AI_LLM_DEFAULT_TIMEOUT_MS;
-    const model = options.model ?? process.env.OPENAI_MODEL ?? process.env.OPENROUTER_MODEL ?? 'openrouter/free';
+    const model =
+      options.model ??
+      process.env.OPENAI_MODEL ??
+      process.env.OPENROUTER_MODEL ??
+      'openrouter/free';
     const maxTokens = options.maxTokens ?? 512;
     const temperature = options.temperature ?? 0.3;
 
     try {
       const { client } = await this.ensureClient();
       const request = {
-          model,
-          messages: [{ role: 'user', content: prompt }],
-          max_tokens: maxTokens,
-          temperature,
-          ...(options.json ? { response_format: { type: 'json_object' as const } } : {}),
-          ...(process.env.OPENROUTER_API_KEY
-            ? { reasoning: { enabled: false } }
-            : {}),
-        } as unknown as Parameters<typeof client.chat.completions.create>[0];
+        model,
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: maxTokens,
+        temperature,
+        ...(options.json ? { response_format: { type: 'json_object' as const } } : {}),
+        ...(process.env.OPENROUTER_API_KEY ? { reasoning: { enabled: false } } : {}),
+      } as unknown as Parameters<typeof client.chat.completions.create>[0];
       const response = (await this.withTimeout(
         client.chat.completions.create(request),
         timeoutMs,
@@ -91,6 +93,86 @@ export class OpenAiLlmProvider implements ILlmProvider {
       };
     } catch (err) {
       this.logger.error(`openai.complete.failed: ${(err as Error).message}`);
+      throw new ExternalServiceException('OpenAI', err as Error, ErrorCode.AI_SERVICE_ERROR);
+    }
+  }
+
+  /**
+   * Multimodal completion — a prompt plus one inline image, via the
+   * standard OpenAI-compatible `image_url` (data URI) content block.
+   * OpenRouter proxies this straight through to whatever vision-capable
+   * model `OPENROUTER_MODEL` names (e.g. `openai/gpt-4o-mini`), so this
+   * works for OpenRouter the same way it would against OpenAI directly.
+   */
+  async completeVision(
+    image: { data: Buffer; mimeType: string },
+    prompt: string,
+    options: LlmOptions = {},
+  ): Promise<LlmResult> {
+    if (!this.isConfigured()) {
+      throw new ExternalServiceException(
+        'OpenAI',
+        new Error('OPENAI_API_KEY not configured'),
+        ErrorCode.AI_SERVICE_ERROR,
+      );
+    }
+    const start = Date.now();
+    const timeoutMs = options.timeoutMs ?? AI_LLM_DEFAULT_TIMEOUT_MS;
+    const model =
+      options.model ??
+      process.env.OPENAI_MODEL ??
+      process.env.OPENROUTER_MODEL ??
+      'openrouter/free';
+    // Vision + structured JSON needs more output headroom than a short
+    // text completion, and a lower temperature favours accurate
+    // extraction over creative phrasing — same rationale as Gemini's
+    // completeVision.
+    const maxTokens = options.maxTokens ?? 1024;
+    const temperature = options.temperature ?? 0.2;
+    const dataUrl = `data:${image.mimeType};base64,${image.data.toString('base64')}`;
+
+    try {
+      const { client } = await this.ensureClient();
+      const request = {
+        model,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: prompt },
+              { type: 'image_url', image_url: { url: dataUrl } },
+            ],
+          },
+        ],
+        max_tokens: maxTokens,
+        temperature,
+        ...(options.json ? { response_format: { type: 'json_object' as const } } : {}),
+        ...(process.env.OPENROUTER_API_KEY ? { reasoning: { enabled: false } } : {}),
+      } as unknown as Parameters<typeof client.chat.completions.create>[0];
+      const response = (await this.withTimeout(
+        client.chat.completions.create(request),
+        timeoutMs,
+      )) as {
+        choices?: Array<{
+          message?: { content?: string | null };
+          finish_reason?: string | null;
+        }>;
+        usage?: { total_tokens?: number };
+      };
+      const choice = response.choices?.[0];
+      const text = choice?.message?.content ?? '';
+      const tokensUsed = response.usage?.total_tokens ?? 0;
+      const cost = AI_OPERATION_UNIT_COST['date-photo-analysis'];
+      return {
+        text,
+        tokensUsed,
+        cost,
+        provider: 'openai',
+        durationMs: Date.now() - start,
+        truncated: choice?.finish_reason === 'length',
+      };
+    } catch (err) {
+      this.logger.error(`openai.completeVision.failed: ${(err as Error).message}`);
       throw new ExternalServiceException('OpenAI', err as Error, ErrorCode.AI_SERVICE_ERROR);
     }
   }
