@@ -208,4 +208,63 @@ export class OpenAiLlmProvider implements ILlmProvider {
       ),
     ]);
   }
+
+  /**
+   * Text → speech via OpenRouter's `/audio/speech` endpoint. This is a
+   * different shape entirely from `complete()`/`completeVision()` (raw
+   * audio bytes back, not a chat-completion JSON envelope), and the
+   * installed `openai` SDK (4.104.0) doesn't bundle an `audio.speech`
+   * client method — so this talks to the endpoint directly with `fetch`
+   * (built into Node 20, no new dependency) rather than forcing it through
+   * an SDK shape that doesn't fit.
+   */
+  async synthesizeSpeech(
+    text: string,
+    options: LlmOptions = {},
+  ): Promise<{ audio: Buffer; contentType: string }> {
+    if (!this.isConfigured()) {
+      throw new ExternalServiceException(
+        'OpenAI',
+        new Error('OPENAI_API_KEY not configured'),
+        ErrorCode.AI_SERVICE_ERROR,
+      );
+    }
+    const timeoutMs = options.timeoutMs ?? AI_LLM_DEFAULT_TIMEOUT_MS;
+    const baseUrl =
+      process.env.OPENAI_BASE_URL ??
+      process.env.OPENROUTER_BASE_URL ??
+      'https://openrouter.ai/api/v1';
+    // Deliberately a separate env var from OPENAI_MODEL/OPENROUTER_MODEL —
+    // that one is the vision/chat model (openai/gpt-4o-mini), a completely
+    // different model family from TTS. Defaults to the free Fish Audio
+    // model so this works without requiring an extra operator step.
+    const model = process.env.OPENROUTER_TTS_MODEL ?? 'fish-audio/s2.1-pro-free:free';
+    const apiKey = process.env.OPENAI_API_KEY ?? process.env.OPENROUTER_API_KEY ?? '';
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(`${baseUrl}/audio/speech`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ model, input: text, response_format: 'mp3' }),
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        const bodyText = await response.text().catch(() => '');
+        throw new Error(`${response.status} ${bodyText || response.statusText}`);
+      }
+      const contentType = response.headers.get('content-type') ?? 'audio/mpeg';
+      const arrayBuffer = await response.arrayBuffer();
+      return { audio: Buffer.from(arrayBuffer), contentType };
+    } catch (err) {
+      this.logger.error(`openai.synthesizeSpeech.failed: ${(err as Error).message}`);
+      throw new ExternalServiceException('OpenAI', err as Error, ErrorCode.AI_SERVICE_ERROR);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
 }

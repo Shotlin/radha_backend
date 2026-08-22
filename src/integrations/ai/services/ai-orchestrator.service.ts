@@ -37,6 +37,7 @@ import {
   LlmResult,
   OcrOptions,
   OcrResult,
+  SpeechSynthesisResult,
   UsageStats,
 } from '../types/ai.types';
 import { truncateForStorage } from '../utils/ocr-text-parser.utils';
@@ -279,6 +280,32 @@ export class AiOrchestratorService implements IAiOrchestratorService {
         ? err
         : new BusinessException(ErrorCode.AI_SERVICE_ERROR, (err as Error).message);
     }
+  }
+
+  /**
+   * Text → speech via the free Fish Audio model — an optional, nicer-
+   * sounding upgrade to the app's existing local device-voice speaker
+   * button, never a replacement for it. No media fetch involved (plain
+   * text in, audio bytes out), so this is simpler than the photo-based
+   * operations above; still runs through the same quota/audit shape for
+   * consistency and abuse-deterrence, even though the model itself is
+   * free.
+   */
+  async synthesizeSpeech(text: string, options: LlmOptions = {}): Promise<SpeechSynthesisResult> {
+    const tenantId = this.tenantId();
+    await this.assertLimit(tenantId, 'text-to-speech');
+
+    const result = await this.llmService.synthesizeSpeech(text, options);
+    await this.usageTracker.trackUsage({
+      tenantId,
+      operation: 'text-to-speech',
+      provider: result.provider,
+      cost: result.cost,
+      durationMs: result.durationMs,
+      success: Boolean(result.audio),
+      userId: this.contextService.getUserId(),
+    });
+    return result;
   }
 
   async imageFallbackScan(mediaId: string): Promise<ImageFallbackResult> {

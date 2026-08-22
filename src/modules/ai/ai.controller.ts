@@ -2,13 +2,16 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   HttpCode,
   Param,
   Post,
   Query,
+  Res,
   UseGuards,
   Version,
 } from '@nestjs/common';
+import type { Response } from 'express';
 
 import { ZodValidationPipe } from '@/common/pipes/zod-validation.pipe';
 import {
@@ -38,6 +41,8 @@ import {
   LabelPhotoAnalyzeRequestSchema,
   LabelTextAnalyzeRequestDto,
   LabelTextAnalyzeRequestSchema,
+  SpeechRequestDto,
+  SpeechRequestSchema,
   LimitCheckQueryDto,
   LimitCheckQuerySchema,
   OcrRequestDto,
@@ -57,6 +62,7 @@ import {
  *   POST /api/v1/ai/label/analyze       Label analysis (paid)
  *   POST /api/v1/ai/label/analyze-photo Label analysis from a photo, vision-native
  *   POST /api/v1/ai/date/analyze-photo  Expiry/mfg date + batch from a photo (date wizard only)
+ *   POST /api/v1/ai/speech               Text-to-speech (cloud voice upgrade, raw audio response)
  *   POST /api/v1/ai/image-fallback      Req 38 backing endpoint
  *   POST /api/v1/ai/report/summary      LLM report summary
  *   GET  /api/v1/ai/ingredients/:slug/explanation   Req 45 backing endpoint
@@ -203,6 +209,34 @@ export class AiController {
     @Body(new ZodValidationPipe(DatePhotoAnalyzeRequestSchema)) dto: DatePhotoAnalyzeRequestDto,
   ): Promise<unknown> {
     return this.ai.analyzeDatePhoto(dto.mediaId);
+  }
+
+  /**
+   * Text → speech, a nicer-sounding cloud-voice upgrade to the app's
+   * existing local device-voice speaker button — never a replacement for
+   * it, since the free model backing this carries no availability
+   * guarantee. Returns raw audio bytes directly (not the usual JSON
+   * envelope) so the app can hand the response straight to an audio
+   * player; on failure (or a degraded mock result) returns 503 so the
+   * client's normal error handling falls back to the local voice, rather
+   * than a 200 with an empty/unplayable body.
+   */
+  @Post('speech')
+  @Version('1')
+  @Header('Content-Type', 'audio/mpeg')
+  @Roles('owner', 'manager', 'staff', 'admin', 'consumer')
+  @RequirePermissions('consumer:scan')
+  @RequireTenant()
+  async synthesizeSpeech(
+    @Body(new ZodValidationPipe(SpeechRequestSchema)) dto: SpeechRequestDto,
+    @Res() res: Response,
+  ): Promise<void> {
+    const result = await this.ai.synthesizeSpeech(dto.text);
+    if (!result.audio) {
+      res.status(503).json({ success: false, message: 'Cloud voice unavailable' });
+      return;
+    }
+    res.send(result.audio);
   }
 
   /* ─────────────────── LLM ─────────────────── */

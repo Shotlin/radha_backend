@@ -13,6 +13,7 @@ import type {
   LlmResult,
   OcrOptions,
   OcrResult,
+  SpeechSynthesisResult,
   UsageStats,
 } from '@/integrations/ai/types/ai.types';
 
@@ -55,6 +56,10 @@ export class AiService {
 
   analyzeDatePhoto(mediaId: string): Promise<DatePhotoAnalysisResult> {
     return this.orchestrator.analyzeDatePhoto(mediaId);
+  }
+
+  synthesizeSpeech(text: string): Promise<SpeechSynthesisResult> {
+    return this.orchestrator.synthesizeSpeech(text);
   }
 
   imageFallbackScan(mediaId: string): Promise<ImageFallbackResult> {

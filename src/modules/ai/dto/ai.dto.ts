@@ -92,6 +92,19 @@ export const DatePhotoAnalyzeRequestSchema = z
   .strict();
 export type DatePhotoAnalyzeRequestDto = z.infer<typeof DatePhotoAnalyzeRequestSchema>;
 
+/**
+ * Text → speech (the app's speaker-button cloud-voice upgrade). Capped at
+ * a length the AI insight card would never realistically exceed — a hard
+ * boundary against someone using this endpoint to synthesize arbitrary
+ * long-form audio for free.
+ */
+export const SpeechRequestSchema = z
+  .object({
+    text: z.string().min(1).max(2000),
+  })
+  .strict();
+export type SpeechRequestDto = z.infer<typeof SpeechRequestSchema>;
+
 /* ─────────────────── Report summary ─────────────────── */
 
 export const ReportSummaryRequestSchema = z

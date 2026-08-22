@@ -54,6 +54,9 @@ export const AI_OPERATION_UNIT_COST: Record<AiOperation, number> = {
   // + ~100 output tokens (a 3-field JSON object) at $0.15/$0.60 per M
   // tokens ≈ $0.0003/call. Rounded up for headroom.
   'date-photo-analysis': 0.0005,
+  // fish-audio/s2.1-pro-free:free via OpenRouter — genuinely $0, not an
+  // estimate (see ai.module.ts / OPENROUTER_TTS_MODEL default).
+  'text-to-speech': 0,
   'image-fallback': 0.0015,
   'report-summary': 0.005,
   'product-enrichment': 0.003,
@@ -88,6 +91,10 @@ export const AI_DEFAULT_LIMITS: Record<AiOperation, OperationLimits> = {
   // record), not an occasional product-onboarding step, and the per-call
   // cost is roughly 1/6th of label-photo-analysis's.
   'date-photo-analysis': { monthly: 2_000, daily: 200 },
+  // The free TTS endpoint has its own OpenRouter-side rate limit already
+  // (see fish-audio/s2.1-pro-free:free docs) — this cap just deters
+  // in-app abuse, not cost (the model is free).
+  'text-to-speech': { monthly: 3_000, daily: 300 },
   'image-fallback': { monthly: 200, daily: 30 },
   'report-summary': { monthly: 100, daily: 20 },
   'product-enrichment': { monthly: 500, daily: 50 },

@@ -21,6 +21,7 @@ import {
   LLM_PROVIDER_TOKEN,
   LlmOptions,
   LlmResult,
+  SpeechSynthesisResult,
 } from '../types/ai.types';
 import { truncateForStorage } from '../utils/ocr-text-parser.utils';
 
@@ -441,6 +442,65 @@ export class LlmService {
         ...base,
         confidence: 0,
         warnings: ['Could not parse date photo analysis — try a clearer photo'],
+      };
+    }
+  }
+
+  /** Hard cap on TTS input — the AI insight card is a few sentences; this is generous headroom. */
+  private static readonly TTS_INPUT_MAX_CHARS = 2000;
+
+  /**
+   * Text → speech via the free `fish-audio/s2.1-pro-free:free` model
+   * (OpenRouter). The app's speaker button already works with the
+   * device's own built-in TTS voice (`flutter_tts`, free, local,
+   * always-available) — this is an upgrade path to a more natural-
+   * sounding cloud voice, not a replacement for it. The free endpoint
+   * carries no availability guarantee (OpenRouter's own model page),
+   * so failures here are expected to happen sometimes; the app is
+   * expected to fall back to the local voice on any error, same
+   * graceful-degrade contract as the other vision/photo paths.
+   */
+  async synthesizeSpeech(text: string, options: LlmOptions = {}): Promise<SpeechSynthesisResult> {
+    const trimmed = text.trim().slice(0, LlmService.TTS_INPUT_MAX_CHARS);
+    if (trimmed.length === 0) {
+      return { contentType: 'audio/mpeg', provider: 'mock', cost: 0, durationMs: 0 };
+    }
+    if (!this.openAiProvider.isConfigured() || !this.breaker.isAllowed('openai')) {
+      return {
+        contentType: 'audio/mpeg',
+        provider: 'mock',
+        cost: 0,
+        durationMs: 0,
+        warnings: ['Cloud voice unavailable — falling back to the device voice'],
+      };
+    }
+
+    const start = Date.now();
+    try {
+      const { audio, contentType } = await this.openAiProvider.synthesizeSpeech(trimmed, {
+        ...options,
+        timeoutMs: options.timeoutMs ?? AI_LLM_DEFAULT_TIMEOUT_MS,
+      });
+      this.breaker.recordSuccess('openai');
+      return {
+        audio,
+        contentType,
+        provider: 'openai',
+        cost: 0,
+        durationMs: Date.now() - start,
+      };
+    } catch (err) {
+      this.breaker.recordFailure('openai');
+      this.logger.warn('ai.llm.speech_fallback_to_mock', {
+        provider: 'openai',
+        error: { name: (err as Error).name, message: (err as Error).message },
+      });
+      return {
+        contentType: 'audio/mpeg',
+        provider: 'mock',
+        cost: 0,
+        durationMs: Date.now() - start,
+        warnings: ['Cloud voice failed — falling back to the device voice'],
       };
     }
   }

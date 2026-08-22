@@ -26,6 +26,7 @@ export type AiOperation =
   | 'label-analysis'
   | 'label-photo-analysis'
   | 'date-photo-analysis'
+  | 'text-to-speech'
   | 'image-fallback'
   | 'report-summary'
   | 'product-enrichment'
@@ -144,6 +145,18 @@ export interface DatePhotoAnalysisResult {
   mfgDate?: string;
   batchNumber?: string;
   confidence: number;
+  provider: AiProvider;
+  cost: number;
+  durationMs: number;
+  warnings?: string[];
+}
+
+/** Result of a text→speech call (`LlmService.synthesizeSpeech`). */
+export interface SpeechSynthesisResult {
+  /** Raw audio bytes, or undefined on failure (mock/degraded result). */
+  audio?: Buffer;
+  /** MIME type of [audio], e.g. "audio/mpeg". */
+  contentType: string;
   provider: AiProvider;
   cost: number;
   durationMs: number;
@@ -319,6 +332,7 @@ export interface IAiOrchestratorService {
   analyzeLabelText(transcript: string, options?: LlmOptions): Promise<LabelAnalysisResult>;
   analyzeLabelPhoto(mediaId: string, options?: LlmOptions): Promise<LabelAnalysisResult>;
   analyzeDatePhoto(mediaId: string, options?: LlmOptions): Promise<DatePhotoAnalysisResult>;
+  synthesizeSpeech(text: string, options?: LlmOptions): Promise<SpeechSynthesisResult>;
   imageFallbackScan(mediaId: string): Promise<ImageFallbackResult>;
   generateReportSummary(reportData: unknown, options?: LlmOptions): Promise<LlmResult>;
   explainIngredient(slug: string, options?: LlmOptions): Promise<IngredientExplanationResult>;
