@@ -6,6 +6,7 @@ import {
   AI_EXPLANATION_RULE_VERSION,
   AI_EXPLANATION_TEXT_MAX,
   AI_LLM_DEFAULT_TIMEOUT_MS,
+  AI_TTS_TIMEOUT_MS,
 } from '../ai.constants';
 import { AiCircuitBreakerService } from './ai-circuit-breaker.service';
 import { AiExplanationCacheRepository } from '../repositories/ai-explanation-cache.repository';
@@ -479,7 +480,7 @@ export class LlmService {
     try {
       const { audio, contentType } = await this.openAiProvider.synthesizeSpeech(trimmed, {
         ...options,
-        timeoutMs: options.timeoutMs ?? AI_LLM_DEFAULT_TIMEOUT_MS,
+        timeoutMs: options.timeoutMs ?? AI_TTS_TIMEOUT_MS,
       });
       this.breaker.recordSuccess('openai');
       return {

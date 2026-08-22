@@ -12,6 +12,19 @@ import type { AiOperation, OperationLimits } from './types/ai.types';
 export const AI_LLM_DEFAULT_TIMEOUT_MS = 10_000;
 
 /**
+ * Wall-clock cap specifically for text-to-speech (fish-audio/s2.1-pro-
+ * free:free via OpenRouter). Longer than AI_LLM_DEFAULT_TIMEOUT_MS
+ * because synthesizing a full multi-paragraph AI insight into speech
+ * takes meaningfully longer than a short chat completion, and because
+ * the free tier explicitly carries no latency guarantee (OpenRouter's
+ * own model page) — a real call for the app's full insight text (~1700
+ * chars) measured >10s and hit the old shared default (2026-08-22).
+ * The app's own HTTP client timeout is 30s (dio_provider.dart), so this
+ * stays safely under that with headroom for network overhead.
+ */
+export const AI_TTS_TIMEOUT_MS = 25_000;
+
+/**
  * Transient-failure retry policy for LLM providers. A production LLM call can
  * hit a transient 429/5xx or a dropped connection; one retry with jittered
  * exponential backoff absorbs those without compounding latency. Per-attempt
