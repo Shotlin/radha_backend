@@ -97,6 +97,10 @@ export const stores = pgTable(
     city: varchar('city', { length: 100 }),
     state: varchar('state', { length: 100 }),
     pincode: varchar('pincode', { length: 10 }),
+    gstin: varchar('gstin', { length: 15 }),
+    businessHours: jsonb('business_hours').$type<
+      Record<string, { open: boolean; opensAt?: string; closesAt?: string }>
+    >(),
     country: varchar('country', { length: 2 }).notNull().default('IN'),
     latitude: decimal('latitude', { precision: 10, scale: 7 }),
     longitude: decimal('longitude', { precision: 10, scale: 7 }),

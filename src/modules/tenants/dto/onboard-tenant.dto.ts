@@ -35,6 +35,59 @@ export const CreateStoreSchema = z.object({
 });
 export type CreateStoreDto = z.infer<typeof CreateStoreSchema>;
 
+const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+const DAYS = [
+  'monday',
+  'tuesday',
+  'wednesday',
+  'thursday',
+  'friday',
+  'saturday',
+  'sunday',
+] as const;
+
+const DayHoursSchema = z
+  .object({
+    open: z.boolean(),
+    opensAt: z.string().regex(TIME_RE, 'opensAt must be HH:mm').optional(),
+    closesAt: z.string().regex(TIME_RE, 'closesAt must be HH:mm').optional(),
+  })
+  .refine((d) => !d.open || (d.opensAt !== undefined && d.closesAt !== undefined), {
+    message: 'opensAt and closesAt are required when a day is open',
+  });
+
+export const BusinessHoursSchema = z.object(
+  Object.fromEntries(DAYS.map((day) => [day, DayHoursSchema])) as Record<
+    (typeof DAYS)[number],
+    typeof DayHoursSchema
+  >,
+);
+export type BusinessHoursDto = z.infer<typeof BusinessHoursSchema>;
+
+/**
+ * Store Details screen (Profile > Store details). Name + full address are
+ * mandatory here even though `CreateStoreSchema`'s address fields are
+ * optional at store-creation time — the edit screen is where the founder
+ * asked for these to be enforced. GSTIN stays optional (not every store
+ * has one yet); business hours are optional so a store can be edited
+ * before hours are configured.
+ */
+export const UpdateStoreSchema = z.object({
+  name: z.string().min(1).max(200),
+  addressLine1: z.string().min(1).max(255),
+  city: z.string().min(1).max(100),
+  state: z.string().min(1).max(100),
+  pincode: z.string().min(4).max(10),
+  gstin: z
+    .union([z.string().regex(GSTIN_RE, 'Invalid GSTIN format'), z.literal('')])
+    .optional()
+    .transform((v) => (v === '' ? undefined : v)),
+  businessHours: BusinessHoursSchema.optional(),
+});
+export type UpdateStoreDto = z.infer<typeof UpdateStoreSchema>;
+
 export const GrantStoreAccessSchema = z.object({
   userId: z.string().uuid(),
   accessLevel: z.enum(['read', 'write', 'admin']).default('read'),

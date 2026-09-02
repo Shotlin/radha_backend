@@ -5,7 +5,7 @@ import { ErrorCode } from '@/common/errors/error-codes';
 import { AuditLogService } from '@/observability/audit-log.service';
 
 import { TenantsRepository } from '../tenants/repositories/tenants.repository';
-import { CreateStoreDto, GrantStoreAccessDto } from '../tenants/dto/onboard-tenant.dto';
+import { CreateStoreDto, GrantStoreAccessDto, UpdateStoreDto } from '../tenants/dto/onboard-tenant.dto';
 import { StoresRepository } from './repositories/stores.repository';
 import { UserStoreAccessRepository } from './repositories/user-store-access.repository';
 import { generateStoreCode } from './utils/store-code.util';
@@ -30,6 +30,37 @@ export class StoresService {
     const row = await this.stores.findByTenantAndId(tenantId, storeId);
     if (!row) throw new DomainNotFoundException('Store', storeId);
     return row;
+  }
+
+  /** Store Details screen (name, address, GSTIN, business hours) — owner-only, see StoresController. */
+  async update(
+    tenantId: string,
+    storeId: string,
+    byUserId: string,
+    dto: UpdateStoreDto,
+  ): Promise<StoreRow> {
+    await this.get(tenantId, storeId); // ensures the store exists in this tenant
+    const updated = await this.stores.update(storeId, {
+      name: dto.name,
+      addressLine1: dto.addressLine1,
+      city: dto.city,
+      state: dto.state,
+      pincode: dto.pincode,
+      gstin: dto.gstin ?? null,
+      // Only touch this column when the caller actually sent hours —
+      // omitting the key (rather than setting it to `undefined`) keeps a
+      // previously-saved schedule intact on a save that doesn't include it.
+      ...(dto.businessHours !== undefined ? { businessHours: dto.businessHours } : {}),
+    });
+    await this.audit.logAction({
+      action: 'UPDATE',
+      resourceType: 'Store',
+      resourceId: storeId,
+      userId: byUserId,
+      tenantId,
+      success: true,
+    });
+    return updated;
   }
 
   async create(tenantId: string, byUserId: string, dto: CreateStoreDto): Promise<StoreRow> {

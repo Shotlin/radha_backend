@@ -5,6 +5,7 @@ import {
   Get,
   HttpCode,
   Param,
+  Patch,
   Post,
   UseGuards,
   Version,
@@ -28,6 +29,8 @@ import {
   CreateStoreSchema,
   GrantStoreAccessDto,
   GrantStoreAccessSchema,
+  UpdateStoreDto,
+  UpdateStoreSchema,
 } from '@/modules/tenants/dto/onboard-tenant.dto';
 
 import { StoreScopeGuard, RequireStore } from './guards/store-scope.guard';
@@ -64,6 +67,20 @@ export class StoresController {
   @Roles('owner', 'manager', 'staff', 'auditor', 'admin')
   get(@CurrentTenant() tenantId: string, @Param('storeId', new ParseUuidPipe()) storeId: string) {
     return this.stores.get(tenantId, storeId);
+  }
+
+  /** Store Details screen (Profile > Store details) — owner/admin only, per founder's explicit ask. */
+  @Patch(':storeId')
+  @Version('1')
+  @RequireStore()
+  @Roles('owner', 'admin')
+  update(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser('id') byUserId: string,
+    @Param('storeId', new ParseUuidPipe()) storeId: string,
+    @Body(new ZodValidationPipe(UpdateStoreSchema)) dto: UpdateStoreDto,
+  ) {
+    return this.stores.update(tenantId, storeId, byUserId, dto);
   }
 
   @Post(':storeId/access')
