@@ -8,7 +8,10 @@ import { TenantsRepository } from '../tenants/repositories/tenants.repository';
 import { CreateStoreDto, GrantStoreAccessDto } from '../tenants/dto/onboard-tenant.dto';
 import { StoresRepository } from './repositories/stores.repository';
 import { UserStoreAccessRepository } from './repositories/user-store-access.repository';
+import { generateStoreCode } from './utils/store-code.util';
 import type { StoreRow, UserStoreAccessRow } from '@/db/schema/tenants';
+
+const MAX_SHORT_CODE_ATTEMPTS = 5;
 
 @Injectable()
 export class StoresService {
@@ -43,6 +46,7 @@ export class StoresService {
       tenantId,
       name: dto.name,
       code: dto.code,
+      shortCode: await this.ensureShortCode(),
       type: dto.type,
       addressLine1: dto.addressLine1,
       city: dto.city,
@@ -59,6 +63,16 @@ export class StoresService {
       success: true,
     });
     return store;
+  }
+
+  /** Generates a short store code, re-rolling on the rare pre-insert collision. */
+  private async ensureShortCode(): Promise<string> {
+    for (let attempt = 0; attempt < MAX_SHORT_CODE_ATTEMPTS; attempt += 1) {
+      const candidate = generateStoreCode();
+      const collision = await this.stores.findByShortCode(candidate);
+      if (!collision) return candidate;
+    }
+    throw new Error(`Failed to generate a unique store code after ${MAX_SHORT_CODE_ATTEMPTS} attempts`);
   }
 
   async grantAccess(

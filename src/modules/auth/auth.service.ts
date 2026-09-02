@@ -548,6 +548,7 @@ export class AuthService {
     return {
       id: user.id,
       mobile: user.mobile,
+      email: user.email,
       name: user.name,
       role: user.role,
       tenantId: user.tenantId,

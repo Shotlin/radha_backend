@@ -28,4 +28,9 @@ export class StoresRepository extends BaseRepository<
   async listForTenant(tenantId: string): Promise<StoreRow[]> {
     return (await this.db.select().from(stores).where(eq(stores.tenantId, tenantId))) as StoreRow[];
   }
+
+  async findByShortCode(shortCode: string): Promise<StoreRow | null> {
+    const [row] = await this.db.select().from(stores).where(eq(stores.shortCode, shortCode)).limit(1);
+    return (row as StoreRow | undefined) ?? null;
+  }
 }

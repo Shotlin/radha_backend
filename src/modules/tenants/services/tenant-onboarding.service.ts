@@ -10,6 +10,7 @@ import { AuditLogService } from '@/observability/audit-log.service';
 
 import { OnboardTenantDto } from '../dto/onboard-tenant.dto';
 import { TenantsRepository } from '../repositories/tenants.repository';
+import { generateStoreCode } from '@/modules/stores/utils/store-code.util';
 
 const RESERVED_SUBDOMAINS = new Set([
   'admin',
@@ -104,6 +105,7 @@ export class TenantOnboardingService {
           tenantId: tenant.id,
           name: dto.storeName,
           code: 'STORE-001',
+          shortCode: generateStoreCode(),
           type: 'retail',
           addressLine1: dto.storeAddress,
           city: dto.storeCity,

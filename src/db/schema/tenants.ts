@@ -85,6 +85,11 @@ export const stores = pgTable(
       .references(() => tenants.id, { onDelete: 'cascade' }),
     name: varchar('name', { length: 200 }).notNull(),
     code: varchar('code', { length: 50 }).notNull(),
+    // Short, globally-unique, human-shareable identifier shown in the app
+    // in place of the raw `id` UUID (e.g. Profile screen's "Store ID").
+    // Nullable so existing rows can be backfilled after the migration
+    // lands; every store-creation path generates one going forward.
+    shortCode: varchar('short_code', { length: 12 }),
     type: varchar('type', { length: 50 }).notNull().default('retail'),
     isActive: boolean('is_active').notNull().default(true),
     addressLine1: varchar('address_line_1', { length: 255 }),
@@ -103,6 +108,7 @@ export const stores = pgTable(
     byTenant: index('stores_tenant_idx').on(t.tenantId),
     byTenantCity: index('stores_tenant_city_idx').on(t.tenantId, t.city),
     uniqueTenantCode: uniqueIndex('stores_tenant_code_unique').on(t.tenantId, t.code),
+    uniqueShortCode: uniqueIndex('stores_short_code_unique').on(t.shortCode),
   }),
 );
 

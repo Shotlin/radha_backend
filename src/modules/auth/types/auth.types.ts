@@ -51,6 +51,8 @@ export interface UserMeResponse {
   id: string;
   /** Phase 13: null for Google-only signups that never collected a phone number. */
   mobile: string | null;
+  /** Phase 13: set for Google Sign-In accounts; null for OTP-only legacy accounts. */
+  email: string | null;
   name: string;
   role: UserRole;
   tenantId: string | null;

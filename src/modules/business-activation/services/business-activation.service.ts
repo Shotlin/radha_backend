@@ -8,6 +8,7 @@ import { users } from '@/db/schema/users';
 import { AuditLogService } from '@/observability/audit-log.service';
 import { AppAnalyticsService } from '@/modules/analytics/services/app-analytics.service';
 import { SubscriptionsService } from '@/modules/subscriptions/subscriptions.service';
+import { generateStoreCode } from '@/modules/stores/utils/store-code.util';
 
 import type { ActivateBusinessDto } from '../dto/activate-business.dto';
 
@@ -95,6 +96,7 @@ export class BusinessActivationService {
           tenantId: tenant.id,
           name: input.storeName,
           code: 'STORE-001',
+          shortCode: generateStoreCode(),
           type: input.preset === 'pharmacy' ? 'pharmacy' : 'retail',
           addressLine1: input.storeAddressLine1,
           city: input.storeCity,

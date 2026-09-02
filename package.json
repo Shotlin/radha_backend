@@ -44,6 +44,7 @@
     "db:reset": "tsx src/db/reset.ts",
     "db:studio": "drizzle-kit studio",
     "db:backfill:batch-dates": "tsx src/modules/batch-dates/backfill.script.ts",
+    "db:backfill:store-codes": "tsx src/modules/stores/backfill-short-code.script.ts",
     "db:seed:plans": "tsx src/db/seeds/subscription-plans.seed.ts",
     "db:seed:demo-premium": "tsx src/db/seeds/demo-account-premium.seed.ts"
   },
