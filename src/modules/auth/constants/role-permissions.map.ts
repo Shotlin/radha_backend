@@ -127,6 +127,11 @@ export const AUDITOR_PERMISSIONS: ReadonlySet<Permission> = new Set<Permission>(
   'reports:generate',
   'reports:export',
   'inventory:read',
+  // Auditor's mobile shell collapses to 3 tabs (Expiry, Tasks, Profile) --
+  // Expiry is a primary surface for this role, not incidental, so logging
+  // what they scan (new expiry records, Quick Audit quantity check-ins)
+  // must be writable, not just readable.
+  'inventory:write',
   'grn:read',
 ]);
 

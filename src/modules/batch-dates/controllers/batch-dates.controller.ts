@@ -27,7 +27,7 @@ import { BatchDatesResponse, BatchDatesService, BatchSummary } from '../services
  */
 @Controller('products/:ean/batches')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('consumer', 'staff', 'manager', 'owner', 'admin')
+@Roles('consumer', 'staff', 'manager', 'owner', 'auditor', 'admin')
 export class BatchDatesController {
   constructor(private readonly svc: BatchDatesService) {}
 

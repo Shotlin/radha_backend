@@ -90,7 +90,7 @@ export class ExpiryController {
   @Post('expiry-records')
   @Version('1')
   @HttpCode(201)
-  @Roles('owner', 'manager', 'staff', 'admin')
+  @Roles('owner', 'manager', 'staff', 'auditor', 'admin')
   @RequirePermissions('inventory:write')
   @RequireTenant()
   create(
@@ -196,7 +196,7 @@ export class ExpiryController {
    */
   @Patch('expiry-records/:id')
   @Version('1')
-  @Roles('owner', 'manager', 'staff', 'admin')
+  @Roles('owner', 'manager', 'staff', 'auditor', 'admin')
   @RequirePermissions('inventory:write')
   @RequireTenant()
   updateQuantity(
