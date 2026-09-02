@@ -32,7 +32,7 @@ export interface UserLookupResult {
 
 export interface StoreStaffMember {
   userId: string;
-  name: string | null;
+  name: string;
   email: string | null;
   mobile: string | null;
   role: UserRole;
