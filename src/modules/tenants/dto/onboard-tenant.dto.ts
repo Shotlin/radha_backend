@@ -88,11 +88,28 @@ export const UpdateStoreSchema = z.object({
 });
 export type UpdateStoreDto = z.infer<typeof UpdateStoreSchema>;
 
+/**
+ * Staff invite (Staff & roles > Invite). `role` is the same
+ * manager/staff/auditor set the invite sheet already offers as choice
+ * chips -- `StoresService.grantAccess` derives the store-level
+ * `accessLevel` (read/write/admin) from it internally, and also
+ * assigns this role onto the invitee's `users.role` (mirroring the
+ * pre-existing mobile/OTP `resolveOrCreateUser` invite-acceptance
+ * behaviour in auth.service.ts, which already moves an invited user
+ * into the inviter's tenant with the assigned role) so the invite
+ * actually grants the functional permissions that role name implies,
+ * not just a join-table row.
+ */
 export const GrantStoreAccessSchema = z.object({
   userId: z.string().uuid(),
-  accessLevel: z.enum(['read', 'write', 'admin']).default('read'),
+  role: z.enum(['manager', 'staff', 'auditor']),
 });
 export type GrantStoreAccessDto = z.infer<typeof GrantStoreAccessSchema>;
+
+export const LookupUserByEmailSchema = z.object({
+  email: z.string().email().toLowerCase(),
+});
+export type LookupUserByEmailDto = z.infer<typeof LookupUserByEmailSchema>;
 
 export const SuspendTenantSchema = z.object({
   reason: z.string().min(1).max(500),

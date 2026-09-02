@@ -7,6 +7,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
   Version,
 } from '@nestjs/common';
@@ -29,6 +30,8 @@ import {
   CreateStoreSchema,
   GrantStoreAccessDto,
   GrantStoreAccessSchema,
+  LookupUserByEmailDto,
+  LookupUserByEmailSchema,
   UpdateStoreDto,
   UpdateStoreSchema,
 } from '@/modules/tenants/dto/onboard-tenant.dto';
@@ -81,6 +84,39 @@ export class StoresController {
     @Body(new ZodValidationPipe(UpdateStoreSchema)) dto: UpdateStoreDto,
   ) {
     return this.stores.update(tenantId, storeId, byUserId, dto);
+  }
+
+  /** Staff invite sheet's live "does this email match an existing user" checkmark. */
+  @Get(':storeId/access/lookup-user')
+  @Version('1')
+  @RequireStore()
+  @Roles('owner', 'manager', 'admin')
+  @RequirePermissions('users:invite')
+  lookupUser(
+    @CurrentTenant() tenantId: string,
+    @Param('storeId', new ParseUuidPipe()) storeId: string,
+    @Query(new ZodValidationPipe(LookupUserByEmailSchema)) query: LookupUserByEmailDto,
+  ) {
+    return this.stores.lookupUserByEmail(tenantId, storeId, query.email);
+  }
+
+  /**
+   * Staff & roles screen's team list, and the Create Task assignee
+   * picker. Scoped to owner/manager/admin (matching grant/revoke below)
+   * rather than every store role — staff/auditor don't have
+   * 'users:read' in their permission set, and broadening that is a
+   * separate decision from this feature.
+   */
+  @Get(':storeId/access')
+  @Version('1')
+  @RequireStore()
+  @Roles('owner', 'manager', 'admin')
+  @RequirePermissions('users:read')
+  listStaff(
+    @CurrentTenant() tenantId: string,
+    @Param('storeId', new ParseUuidPipe()) storeId: string,
+  ) {
+    return this.stores.listStaff(tenantId, storeId);
   }
 
   @Post(':storeId/access')
