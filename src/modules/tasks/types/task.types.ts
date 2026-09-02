@@ -130,6 +130,16 @@ export interface TaskWithDetails extends Task {
   evidence: TaskEvidenceRow[];
 }
 
+/**
+ * `GET /tasks` / `GET /tasks/my` row shape — `tasks` itself carries no
+ * assignee info, so `TasksService.list`/`listForUser` batch-attach the
+ * active primary assignee ids (see `TaskAssignmentsRepository.listActiveForTaskIds`).
+ * Full assignment rows (incl. observers) are still only on `TaskWithDetails`.
+ */
+export interface TaskListItem extends Task {
+  assigneeIds: string[];
+}
+
 /* ─────────────────── Sweep result (BE-24 cron) ─────────────────── */
 
 export interface OverdueSweepResult {

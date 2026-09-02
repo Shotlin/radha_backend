@@ -27,6 +27,7 @@ import { TaskWorkflowService } from './services/task-workflow.service';
 import type {
   OverdueSweepResult,
   Task,
+  TaskListItem,
   TaskStats,
   TaskStatus,
   TaskWithDetails,
@@ -196,8 +197,8 @@ export class TasksService {
 
   /* ─────────────────── Listing ─────────────────── */
 
-  async list(tenantId: string, query: ListTasksQueryDto): Promise<Task[]> {
-    return this.tasksRepo.listForTenant(tenantId, {
+  async list(tenantId: string, query: ListTasksQueryDto): Promise<TaskListItem[]> {
+    const rows = await this.tasksRepo.listForTenant(tenantId, {
       storeId: query.storeId,
       assigneeId: query.assigneeId,
       status: query.status,
@@ -210,10 +211,15 @@ export class TasksService {
       expiryAlertId: query.expiryAlertId,
       limit: query.limit,
     });
+    return this.withAssigneeIds(rows);
   }
 
-  async listForUser(tenantId: string, userId: string, query: MyTasksQueryDto): Promise<Task[]> {
-    const rows = await this.assignmentsRepo.listTasksForUser(tenantId, userId, {
+  async listForUser(
+    tenantId: string,
+    userId: string,
+    query: MyTasksQueryDto,
+  ): Promise<TaskListItem[]> {
+    let rows = await this.assignmentsRepo.listTasksForUser(tenantId, userId, {
       status: query.status,
       storeId: query.storeId,
       limit: query.limit,
@@ -222,9 +228,23 @@ export class TasksService {
     // results pulled by the joined query.
     if (query.dueBefore) {
       const cutoff = query.dueBefore.getTime();
-      return rows.filter((t) => !!t.dueDate && t.dueDate.getTime() <= cutoff);
+      rows = rows.filter((t) => !!t.dueDate && t.dueDate.getTime() <= cutoff);
     }
-    return rows;
+    return this.withAssigneeIds(rows);
+  }
+
+  /** Batch-attaches active primary-assignee ids — see `TaskListItem`'s doc comment. */
+  private async withAssigneeIds(rows: Task[]): Promise<TaskListItem[]> {
+    if (rows.length === 0) return [];
+    const assignments = await this.assignmentsRepo.listActiveForTaskIds(rows.map((t) => t.id));
+    const byTask = new Map<string, string[]>();
+    for (const a of assignments) {
+      if (a.role !== 'primary') continue;
+      const list = byTask.get(a.taskId) ?? [];
+      list.push(a.assigneeId);
+      byTask.set(a.taskId, list);
+    }
+    return rows.map((t) => ({ ...t, assigneeIds: byTask.get(t.id) ?? [] }));
   }
 
   /* ─────────────────── Workflow ─────────────────── */

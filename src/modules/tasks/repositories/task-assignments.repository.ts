@@ -53,6 +53,21 @@ export class TaskAssignmentsRepository extends BaseRepository<
       .orderBy(asc(taskAssignments.assignedAt))) as TaskAssignmentRow[];
   }
 
+  /**
+   * Batch variant of `listActiveForTask` for list endpoints — one query
+   * for N tasks instead of N. `TasksService.list`/`listForUser` group
+   * the result by `taskId` client-side to attach `assigneeIds` per row,
+   * since `tasks`/`GET /tasks` itself carries no assignee information.
+   */
+  async listActiveForTaskIds(taskIds: string[]): Promise<TaskAssignmentRow[]> {
+    if (taskIds.length === 0) return [];
+    return (await this.db
+      .select()
+      .from(taskAssignments)
+      .where(and(inArray(taskAssignments.taskId, taskIds), isNull(taskAssignments.revokedAt)))
+      .orderBy(asc(taskAssignments.assignedAt))) as TaskAssignmentRow[];
+  }
+
   async listAllForTask(taskId: string): Promise<TaskAssignmentRow[]> {
     return (await this.db
       .select()
