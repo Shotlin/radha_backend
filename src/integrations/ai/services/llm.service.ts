@@ -24,7 +24,7 @@ import {
   LlmResult,
   SpeechSynthesisResult,
 } from '../types/ai.types';
-import { truncateForStorage } from '../utils/ocr-text-parser.utils';
+import { extractJsonCandidate, truncateForStorage } from '../utils/ocr-text-parser.utils';
 
 interface SummaryInput {
   reportType?: string;
@@ -415,7 +415,7 @@ export class LlmService {
         : undefined;
 
     try {
-      const cleaned = this.extractJsonCandidate(llm.text);
+      const cleaned = extractJsonCandidate(llm.text);
       const parsed = JSON.parse(cleaned) as {
         expiryDate?: string | null;
         mfgDate?: string | null;
@@ -541,7 +541,7 @@ export class LlmService {
       durationMs: llm.durationMs,
     };
     try {
-      const cleaned = this.extractJsonCandidate(llm.text);
+      const cleaned = extractJsonCandidate(llm.text);
       const parsed = JSON.parse(cleaned) as {
         productName?: string | null;
         brand?: string | null;
@@ -622,7 +622,7 @@ export class LlmService {
       durationMs: llm.durationMs,
     };
     try {
-      const cleaned = this.extractJsonCandidate(llm.text);
+      const cleaned = extractJsonCandidate(llm.text);
       const parsed = JSON.parse(cleaned) as {
         productName?: string | null;
         brand?: string | null;
@@ -773,7 +773,7 @@ export class LlmService {
       commonUses: [] as string[],
     };
     try {
-      const cleaned = this.extractJsonCandidate(raw);
+      const cleaned = extractJsonCandidate(raw);
       const parsed = JSON.parse(cleaned) as {
         title?: string;
         summary?: string;
@@ -797,33 +797,6 @@ export class LlmService {
     } catch {
       return fallback;
     }
-  }
-
-  /**
-   * Extract a JSON candidate from a raw LLM response. `options.json` asks the
-   * provider for native structured output, but not every model/credential
-   * enforces `responseMimeType` — a live Gemini check returned prose-wrapped
-   * JSON ("Here is the JSON: ```{...}```"). This is resilient to all three
-   * shapes: pure JSON, a fenced ```json block, and JSON embedded in prose
-   * (sliced from the first `{`/`[` to the matching last `}`/`]`).
-   */
-  private extractJsonCandidate(raw: string): string {
-    let s = raw.trim();
-    // Prefer the contents of a fenced block if one is present.
-    const fenced = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
-    if (fenced?.[1]) s = fenced[1].trim();
-    // If it doesn't already start with a JSON token, slice out the widest
-    // {...} / [...] span so leading/trailing prose is dropped.
-    if (s[0] !== '{' && s[0] !== '[') {
-      const starts = [s.indexOf('{'), s.indexOf('[')].filter((i) => i >= 0);
-      const ends = [s.lastIndexOf('}'), s.lastIndexOf(']')].filter((i) => i >= 0);
-      if (starts.length && ends.length) {
-        const start = Math.min(...starts);
-        const end = Math.max(...ends);
-        if (end > start) s = s.slice(start, end + 1);
-      }
-    }
-    return s;
   }
 
   private shortString(s: string | null | undefined): string | undefined {

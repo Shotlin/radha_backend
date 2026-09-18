@@ -27,6 +27,7 @@ export type AiOperation =
   | 'label-photo-analysis'
   | 'date-photo-analysis'
   | 'text-to-speech'
+  | 'voice-assistant'
   | 'image-fallback'
   | 'report-summary'
   | 'product-enrichment'

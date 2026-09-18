@@ -70,6 +70,10 @@ export const AI_OPERATION_UNIT_COST: Record<AiOperation, number> = {
   // fish-audio/s2.1-pro-free:free via OpenRouter — genuinely $0, not an
   // estimate (see ai.module.ts / OPENROUTER_TTS_MODEL default).
   'text-to-speech': 0,
+  // deepseek/deepseek-v4-flash-0731 via OpenRouter (text-only — gpt-4o-mini's
+  // vision capability is wasted on this step, which never sees an image):
+  // ~900 input + ~220 output tokens at $0.065/$0.18 per M ≈ $0.0001/call.
+  'voice-assistant': 0.0002,
   'image-fallback': 0.0015,
   'report-summary': 0.005,
   'product-enrichment': 0.003,
@@ -108,6 +112,9 @@ export const AI_DEFAULT_LIMITS: Record<AiOperation, OperationLimits> = {
   // (see fish-audio/s2.1-pro-free:free docs) — this cap just deters
   // in-app abuse, not cost (the model is free).
   'text-to-speech': { monthly: 3_000, daily: 300 },
+  // Cost per call is near-zero; the cap deters a shop leaving the mic
+  // "always on" all day, not a budget concern.
+  'voice-assistant': { monthly: 3_000, daily: 200 },
   'image-fallback': { monthly: 200, daily: 30 },
   'report-summary': { monthly: 100, daily: 20 },
   'product-enrichment': { monthly: 500, daily: 50 },

@@ -199,3 +199,36 @@ export const truncateForStorage = (text: string, max: number): string => {
   if (text.length <= max) return text;
   return `${text.slice(0, max - 3)}...`;
 };
+
+/**
+ * Pull a JSON object/array candidate out of a raw LLM completion.
+ *
+ * `json: true` (response_format json_object) asks the model to emit a
+ * single parseable object, but not every provider/model enforces this —
+ * a live Gemini check once returned prose-wrapped JSON ("Here is the
+ * JSON: ```{...}```"). Resilient to all three shapes: pure JSON, a
+ * fenced ```json block, and JSON embedded in prose (sliced from the
+ * first `{`/`[` to the matching last `}`/`]`).
+ *
+ * Shared by every LLM caller that requests structured output
+ * (`LlmService`, `VoiceAssistantService`, ...) rather than each
+ * reimplementing the same tolerant-parse logic.
+ */
+export const extractJsonCandidate = (raw: string): string => {
+  let s = raw.trim();
+  // Prefer the contents of a fenced block if one is present.
+  const fenced = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced?.[1]) s = fenced[1].trim();
+  // If it doesn't already start with a JSON token, slice out the widest
+  // {...} / [...] span so leading/trailing prose is dropped.
+  if (s[0] !== '{' && s[0] !== '[') {
+    const starts = [s.indexOf('{'), s.indexOf('[')].filter((i) => i >= 0);
+    const ends = [s.lastIndexOf('}'), s.lastIndexOf(']')].filter((i) => i >= 0);
+    if (starts.length && ends.length) {
+      const start = Math.min(...starts);
+      const end = Math.max(...ends);
+      if (end > start) s = s.slice(start, end + 1);
+    }
+  }
+  return s;
+};

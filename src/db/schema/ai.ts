@@ -50,6 +50,7 @@ export const aiOperationEnum = pgEnum('ai_operation', [
   'label-photo-analysis',
   'date-photo-analysis',
   'text-to-speech',
+  'voice-assistant',
   'image-fallback',
   'report-summary',
   'product-enrichment',
